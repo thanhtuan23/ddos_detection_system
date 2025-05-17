@@ -4,6 +4,8 @@ import queue
 import threading
 import time
 from typing import List, Dict, Any, Optional
+# Thay thế import pyshark với:
+from scapy.all import sniff, IP, TCP, UDP
 
 class PacketCapture:
     """Thu thập gói tin và phân tích luồng mạng thời gian thực."""
