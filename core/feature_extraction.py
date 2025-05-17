@@ -86,17 +86,7 @@ class FeatureExtractor:
             features['UDP Flood Indicator'] = 1 if features['Packet Rate'] > 100 else 0
         else:
             features['UDP Flood Indicator'] = 0
-
-
-        features['Flow Bytes/s'] = features['Byte Rate']  # Có thể là bản sao của Byte Rate
-        features['Flow Packets/s'] = features['Packet Rate']  # Có thể là bản sao của Packet Rate
-        features['Fwd Packets/s'] = features['Packet Rate'] / 2  # Ước tính
-        features['Bwd Packets/s'] = features['Packet Rate'] / 2  # Ước tính
-        features['Min Packet Length'] = features['Packet Length Min']  # Bản sao
-        features['Max Packet Length'] = features['Packet Length Max']  # Bản sao
-        features['Packet Length Variance'] = features['Packet Length Std'] ** 2  # Phái sinh
-        features['Average Packet Size'] = features['Packet Length Mean']  # Bản sao 
-                   
+         
         return features
     
     def prepare_features_for_model(self, features_list: List[Dict[str, Any]]) -> np.ndarray:
