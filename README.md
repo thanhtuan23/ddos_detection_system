@@ -1,4 +1,4 @@
-# Clone repository và di chuyển vào thư mục dự án
+# DDoS_detection_system
 
 1. Git clone repo:
 ```bash
