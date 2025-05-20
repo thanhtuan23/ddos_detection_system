@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Any
 import json
 import os
+from utils.email_sender import EmailSender
 
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Tắt cache
@@ -140,8 +141,12 @@ def stop_prevention():
 
 @app.route('/api/blocked_ips')
 def get_blocked_ips():
-    with state_lock:
-        return jsonify(system_state['blocked_ips'])
+    try:
+        with state_lock:
+            return jsonify(system_state['blocked_ips'])
+    except Exception as e:
+        app.logger.error(f"Lỗi khi lấy danh sách IP bị chặn: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/unblock_ip', methods=['POST'])
 def unblock_ip():
@@ -159,63 +164,6 @@ def get_detection_stats():
     with state_lock:
         return jsonify(system_state['detection_stats'])
 
-@app.route('/api/update_config', methods=['POST'])
-def update_config():
-    config_data = request.json
-    if not config_data:
-        return jsonify({'success': False, 'error': 'No config data provided'})
-        
-    if hasattr(app, 'update_config_callback'):
-        success = app.update_config_callback(config_data)
-        return jsonify({'success': success})
-    return jsonify({'success': False, 'error': 'Callback not registered'})
-# Thêm API để lấy cấu hình hiện tại
-@app.route('/api/get_config')
-def get_config():
-    """API để lấy cấu hình hiện tại."""
-    try:
-        config_path = 'config/config.ini'
-        if not os.path.exists(config_path):
-            return jsonify({'error': 'Config file not found'}), 404
-            
-        config = configparser.ConfigParser()
-        config.read(config_path)
-        
-        result = {}
-        
-        # Danh sách các tham số yêu cầu khởi động lại
-        restart_params = {
-            'detection': ['batch_size', 'model_path'],
-            'prevention': ['enable_auto_block'],
-            'notification': ['enable_notifications'],
-            'network': ['interface', 'capture_filter']
-        }
-        
-        # Chuyển đổi ConfigParser thành dict
-        for section in config.sections():
-            section_lower = section.lower()
-            result[section_lower] = {
-                'params': {},
-                'restart_params': restart_params.get(section_lower, [])
-            }
-            
-            for key, value in config[section].items():
-                # Xử lý các giá trị đặc biệt
-                if key == 'whitelist':
-                    result[section_lower]['params'][key] = [ip.strip() for ip in value.split(',') if ip.strip()]
-                elif key == 'recipients':
-                    result[section_lower]['params'][key] = [email.strip() for email in value.split(',') if email.strip()]
-                elif key in ['detection_threshold', 'check_interval']:
-                    result[section_lower]['params'][key] = float(value)
-                elif key in ['batch_size', 'block_duration', 'smtp_port', 'cooldown_period']:
-                    result[section_lower]['params'][key] = int(value)
-                else:
-                    result[section_lower]['params'][key] = value
-        
-        return jsonify(result)
-    except Exception as e:
-        app.logger.error(f"Lỗi khi lấy cấu hình: {e}")
-        return jsonify({'error': str(e)}), 500
 # Thêm API để cập nhật cấu hình
 @app.route('/api/update_config', methods=['POST'])
 def update_config():
@@ -269,7 +217,53 @@ def update_config():
     except Exception as e:
         app.logger.error(f"Lỗi khi cập nhật cấu hình: {e}")
         return jsonify({'success': False, 'error': str(e)})
-
+# Thêm API để lấy cấu hình hiện tại
+@app.route('/api/get_config')
+def get_config():
+    """API để lấy cấu hình hiện tại."""
+    try:
+        config_path = 'config/config.ini'
+        if not os.path.exists(config_path):
+            return jsonify({'error': 'Config file not found'}), 404
+            
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        
+        result = {}
+        
+        # Danh sách các tham số yêu cầu khởi động lại
+        restart_params = {
+            'detection': ['batch_size', 'model_path'],
+            'prevention': ['enable_auto_block'],
+            'notification': ['enable_notifications'],
+            'network': ['interface', 'capture_filter']
+        }
+        
+        # Chuyển đổi ConfigParser thành dict
+        for section in config.sections():
+            section_lower = section.lower()
+            result[section_lower] = {
+                'params': {},
+                'restart_params': restart_params.get(section_lower, [])
+            }
+            
+            for key, value in config[section].items():
+                # Xử lý các giá trị đặc biệt
+                if key == 'whitelist':
+                    result[section_lower]['params'][key] = [ip.strip() for ip in value.split(',') if ip.strip()]
+                elif key == 'recipients':
+                    result[section_lower]['params'][key] = [email.strip() for email in value.split(',') if email.strip()]
+                elif key in ['detection_threshold', 'check_interval']:
+                    result[section_lower]['params'][key] = float(value)
+                elif key in ['batch_size', 'block_duration', 'smtp_port', 'cooldown_period']:
+                    result[section_lower]['params'][key] = int(value)
+                else:
+                    result[section_lower]['params'][key] = value
+        
+        return jsonify(result)
+    except Exception as e:
+        app.logger.error(f"Lỗi khi lấy cấu hình: {e}")
+        return jsonify({'error': str(e)}), 500
 # Thêm API để kiểm tra email
 @app.route('/api/test_email', methods=['POST'])
 def test_email():
