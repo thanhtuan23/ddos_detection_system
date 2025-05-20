@@ -119,3 +119,41 @@ body {
         font-size: 1.1rem;
     }
 }
+.form-text .text-danger {
+    font-weight: bold;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+/* Cải thiện hiển thị thông báo */
+.alert-info, .alert-warning {
+    border-left: 4px solid #0d6efd;
+    border-radius: 0.25rem;
+}
+
+.alert-warning {
+    border-left-color: #ffc107;
+}
+
+/* Hiệu ứng cho form khi đang cập nhật */
+.form-updating {
+    position: relative;
+    opacity: 0.8;
+    pointer-events: none;
+}
+
+.form-updating::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.5);
+    z-index: 100;
+}

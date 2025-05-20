@@ -45,34 +45,76 @@ function loadCurrentConfig() {
         .then(response => response.json())
         .then(config => {
             // Điền giá trị vào form
-            if (config.detection) {
-                document.getElementById('detection_threshold').value = config.detection.detection_threshold || 0.7;
-                document.getElementById('threshold_value').textContent = config.detection.detection_threshold || 0.7;
-                document.getElementById('batch_size').value = config.detection.batch_size || 5;
-                document.getElementById('check_interval').value = config.detection.check_interval || 1.0;
+            if (config.detection && config.detection.params) {
+                const params = config.detection.params;
+                document.getElementById('detection_threshold').value = params.detection_threshold || 0.7;
+                document.getElementById('threshold_value').textContent = params.detection_threshold || 0.7;
+                document.getElementById('batch_size').value = params.batch_size || 5;
+                document.getElementById('check_interval').value = params.check_interval || 1.0;
+                
+                // Điền đường dẫn mô hình nếu có
+                if (document.getElementById('model_path')) {
+                    document.getElementById('model_path').value = params.model_path || '';
+                }
             }
             
-            if (config.prevention) {
-                document.getElementById('block_duration').value = config.prevention.block_duration || 300;
-                document.getElementById('whitelist').value = Array.isArray(config.prevention.whitelist) ? 
-                    config.prevention.whitelist.join(', ') : config.prevention.whitelist || '';
-                document.getElementById('enable_auto_block').checked = config.prevention.enable_auto_block !== false;
+            if (config.prevention && config.prevention.params) {
+                const params = config.prevention.params;
+                document.getElementById('block_duration').value = params.block_duration || 300;
+                document.getElementById('whitelist').value = Array.isArray(params.whitelist) ? 
+                    params.whitelist.join(', ') : params.whitelist || '';
+                
+                // Điền trạng thái enable_auto_block nếu có
+                if (document.getElementById('enable_auto_block')) {
+                    document.getElementById('enable_auto_block').checked = 
+                        params.enable_auto_block === undefined ? true : (params.enable_auto_block === 'true');
+                }
             }
             
-            if (config.notification) {
-                document.getElementById('smtp_server').value = config.notification.smtp_server || '';
-                document.getElementById('smtp_port').value = config.notification.smtp_port || '';
-                document.getElementById('sender_email').value = config.notification.sender_email || '';
+            if (config.notification && config.notification.params) {
+                const params = config.notification.params;
+                document.getElementById('smtp_server').value = params.smtp_server || '';
+                document.getElementById('smtp_port').value = params.smtp_port || '';
+                document.getElementById('sender_email').value = params.sender_email || '';
                 document.getElementById('email_password').value = ''; // Không hiển thị mật khẩu
-                document.getElementById('recipients').value = Array.isArray(config.notification.recipients) ?
-                    config.notification.recipients.join(', ') : config.notification.recipients || '';
-                document.getElementById('cooldown_period').value = config.notification.cooldown_period || 300;
-                document.getElementById('enable_notifications').checked = config.notification.enable_notifications !== false;
+                document.getElementById('recipients').value = Array.isArray(params.recipients) ?
+                    params.recipients.join(', ') : params.recipients || '';
+                document.getElementById('cooldown_period').value = params.cooldown_period || 300;
+                
+                // Điền trạng thái enable_notifications nếu có
+                if (document.getElementById('enable_notifications')) {
+                    document.getElementById('enable_notifications').checked = 
+                        params.enable_notifications === undefined ? true : (params.enable_notifications === 'true');
+                }
             }
+            
+            // Đánh dấu các tham số yêu cầu khởi động lại
+            highlightRestartParams(config);
         })
         .catch(error => {
             console.error('Lỗi khi tải cấu hình:', error);
         });
+}
+
+// Hàm đánh dấu các tham số yêu cầu khởi động lại
+function highlightRestartParams(config) {
+    // Duyệt qua các section
+    for (const [sectionName, sectionData] of Object.entries(config)) {
+        if (sectionData.restart_params && Array.isArray(sectionData.restart_params)) {
+            // Duyệt qua các tham số yêu cầu khởi động lại
+            for (const param of sectionData.restart_params) {
+                // Tìm phần tử label tương ứng
+                const inputElement = document.getElementById(param);
+                if (inputElement) {
+                    const labelElement = inputElement.previousElementSibling;
+                    if (labelElement && labelElement.tagName === 'LABEL') {
+                        // Thêm dấu hiệu yêu cầu khởi động lại
+                        labelElement.innerHTML += ' <span class="badge bg-warning text-dark">Restart</span>';
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Cập nhật trạng thái hệ thống
@@ -156,6 +198,49 @@ document.getElementById('notification-form').addEventListener('submit', function
 
 // Cập nhật cấu hình
 function updateConfig(section, config) {
+    // Kiểm tra xem có tham số nào yêu cầu khởi động lại không
+    const restartParams = {
+        'detection': ['batch_size', 'model_path'],
+        'prevention': ['enable_auto_block'],
+        'notification': ['enable_notifications'],
+        'network': ['interface', 'capture_filter']
+    };
+    
+    let needsRestart = false;
+    if (section.toLowerCase() in restartParams) {
+        const params = restartParams[section.toLowerCase()];
+        for (const param of params) {
+            if (param in config) {
+                needsRestart = true;
+                break;
+            }
+        }
+    }
+    
+    // Thêm thông báo tạm thời nếu cần khởi động lại
+    if (needsRestart) {
+        // Hiển thị thông báo đang khởi động lại
+        const formId = `${section.toLowerCase()}-form`;
+        const form = document.getElementById(formId);
+        if (form) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-warning mt-3';
+            alertDiv.id = 'restart-alert';
+            alertDiv.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                        <span class="visually-hidden">Đang khởi động lại...</span>
+                    </div>
+                    <div>
+                        Đang tự động khởi động lại thành phần ${section}... Vui lòng đợi.
+                    </div>
+                </div>
+            `;
+            form.appendChild(alertDiv);
+        }
+    }
+    
+    // Gửi cập nhật cấu hình
     fetch('/api/update_config', {
         method: 'POST',
         headers: {
@@ -168,13 +253,38 @@ function updateConfig(section, config) {
     })
     .then(response => response.json())
     .then(data => {
+        // Xóa thông báo khởi động lại nếu có
+        const restartAlert = document.getElementById('restart-alert');
+        if (restartAlert) {
+            restartAlert.remove();
+        }
+        
         if (data.success) {
-            alert(`Cấu hình ${section} đã được cập nhật thành công!`);
+            // Hiển thị thông báo thành công
+            let message = `Cấu hình ${section} đã được cập nhật thành công!`;
+            
+            // Thêm thông báo đặc biệt cho tham số yêu cầu khởi động lại
+            if (needsRestart) {
+                message += ' Hệ thống đã tự động khởi động lại các thành phần cần thiết.';
+            }
+            
+            alert(message);
+            
+            // Nếu đã khởi động lại, cập nhật trạng thái UI
+            if (needsRestart) {
+                loadCurrentConfig();
+            }
         } else {
             alert(`Lỗi khi cập nhật cấu hình ${section}: ${data.error || 'Lỗi không xác định'}`);
         }
     })
     .catch(error => {
+        // Xóa thông báo khởi động lại nếu có
+        const restartAlert = document.getElementById('restart-alert');
+        if (restartAlert) {
+            restartAlert.remove();
+        }
+        
         console.error('Lỗi khi cập nhật cấu hình:', error);
         alert('Đã xảy ra lỗi khi cập nhật cấu hình');
     });

@@ -1,12 +1,16 @@
 # src/ddos_detection_system/ui/app.py
+import configparser
+import csv
 from flask import Flask, render_template, jsonify, request, redirect, url_for, send_file
 import threading
 import time
 import logging
 from typing import Dict, List, Any
 import json
+import os
 
 app = Flask(__name__)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Tắt cache
 
 # Trạng thái và thống kê hệ thống
 system_state = {
@@ -74,6 +78,27 @@ def logs():
 @app.route('/api/status')
 def get_status():
     with state_lock:
+        # Lấy cấu hình hiện tại
+        config = configparser.ConfigParser()
+        config.read('config/config.ini')
+        
+        # Thêm thông tin cấu hình vào state
+        current_config = {}
+        
+        if 'Detection' in config:
+            current_config['detection'] = {
+                'detection_threshold': config.getfloat('Detection', 'detection_threshold', fallback=0.7),
+                'batch_size': config.getint('Detection', 'batch_size', fallback=5),
+                'check_interval': config.getfloat('Detection', 'check_interval', fallback=1.0)
+            }
+            
+        if 'Prevention' in config:
+            current_config['prevention'] = {
+                'block_duration': config.getint('Prevention', 'block_duration', fallback=300),
+                'whitelist': [ip.strip() for ip in config.get('Prevention', 'whitelist', fallback='').split(',') if ip.strip()]
+            }
+        
+        system_state['current_config'] = current_config
         return jsonify(system_state)
 
 @app.route('/api/start_detection', methods=['POST'])
@@ -144,6 +169,156 @@ def update_config():
         success = app.update_config_callback(config_data)
         return jsonify({'success': success})
     return jsonify({'success': False, 'error': 'Callback not registered'})
+# Thêm API để lấy cấu hình hiện tại
+@app.route('/api/get_config')
+def get_config():
+    """API để lấy cấu hình hiện tại."""
+    try:
+        config_path = 'config/config.ini'
+        if not os.path.exists(config_path):
+            return jsonify({'error': 'Config file not found'}), 404
+            
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        
+        result = {}
+        
+        # Danh sách các tham số yêu cầu khởi động lại
+        restart_params = {
+            'detection': ['batch_size', 'model_path'],
+            'prevention': ['enable_auto_block'],
+            'notification': ['enable_notifications'],
+            'network': ['interface', 'capture_filter']
+        }
+        
+        # Chuyển đổi ConfigParser thành dict
+        for section in config.sections():
+            section_lower = section.lower()
+            result[section_lower] = {
+                'params': {},
+                'restart_params': restart_params.get(section_lower, [])
+            }
+            
+            for key, value in config[section].items():
+                # Xử lý các giá trị đặc biệt
+                if key == 'whitelist':
+                    result[section_lower]['params'][key] = [ip.strip() for ip in value.split(',') if ip.strip()]
+                elif key == 'recipients':
+                    result[section_lower]['params'][key] = [email.strip() for email in value.split(',') if email.strip()]
+                elif key in ['detection_threshold', 'check_interval']:
+                    result[section_lower]['params'][key] = float(value)
+                elif key in ['batch_size', 'block_duration', 'smtp_port', 'cooldown_period']:
+                    result[section_lower]['params'][key] = int(value)
+                else:
+                    result[section_lower]['params'][key] = value
+        
+        return jsonify(result)
+    except Exception as e:
+        app.logger.error(f"Lỗi khi lấy cấu hình: {e}")
+        return jsonify({'error': str(e)}), 500
+# Thêm API để cập nhật cấu hình
+@app.route('/api/update_config', methods=['POST'])
+def update_config():
+    """API để cập nhật cấu hình."""
+    try:
+        data = request.json
+        if not data or 'section' not in data or 'config' not in data:
+            return jsonify({'success': False, 'error': 'Invalid request data'}), 400
+            
+        section = data['section'].capitalize()  # Đảm bảo viết hoa chữ cái đầu tiên
+        config_data = data['config']
+        
+        # Map section name
+        section_map = {
+            'detection': 'Detection',
+            'prevention': 'Prevention',
+            'notification': 'Notification',
+            'network': 'Network',
+            'webui': 'WebUI'
+        }
+        
+        if section.lower() in section_map:
+            section = section_map[section.lower()]
+        
+        # Đọc file cấu hình hiện tại
+        config_path = 'config/config.ini'
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        
+        # Đảm bảo section tồn tại
+        if section not in config:
+            config[section] = {}
+        
+        # Cập nhật các giá trị cấu hình
+        for key, value in config_data.items():
+            # Xử lý các kiểu dữ liệu đặc biệt
+            if isinstance(value, list):
+                config[section][key] = ', '.join(value)
+            else:
+                config[section][key] = str(value)
+        
+        # Lưu cấu hình mới
+        with open(config_path, 'w') as f:
+            config.write(f)
+        
+        # Tải lại cấu hình trong hệ thống
+        if hasattr(app, 'update_config_callback'):
+            app.update_config_callback(data)
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        app.logger.error(f"Lỗi khi cập nhật cấu hình: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+# Thêm API để kiểm tra email
+@app.route('/api/test_email', methods=['POST'])
+def test_email():
+    """API để kiểm tra cấu hình email."""
+    try:
+        data = request.json
+        
+        # Kiểm tra các thông tin bắt buộc
+        required_fields = ['smtp_server', 'smtp_port', 'sender_email', 'recipients']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({'success': False, 'error': f'Thiếu thông tin: {field}'}), 400
+        
+        # Tạo email sender tạm thời với cấu hình mới
+        from utils.email_sender import EmailSender
+        email_sender = EmailSender(
+            smtp_server=data['smtp_server'],
+            smtp_port=data['smtp_port'],
+            sender_email=data['sender_email'],
+            password=data['password'],
+            recipients=data['recipients']
+        )
+        
+        # Gửi email kiểm tra
+        subject = 'Kiểm tra kết nối email từ Hệ thống phát hiện DDoS'
+        body = f"""
+        <html>
+        <body>
+            <h2>Kiểm tra kết nối email thành công!</h2>
+            <p>Email này xác nhận rằng cấu hình email của bạn hoạt động chính xác.</p>
+            <p><strong>Thời gian:</strong> {time.strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <p><strong>Cấu hình:</strong></p>
+            <ul>
+                <li>SMTP Server: {data['smtp_server']}</li>
+                <li>SMTP Port: {data['smtp_port']}</li>
+                <li>Sender: {data['sender_email']}</li>
+                <li>Recipients: {', '.join(data['recipients'])}</li>
+            </ul>
+            <p>Nếu bạn nhận được email này, bạn có thể lưu cấu hình và tiếp tục sử dụng hệ thống.</p>
+        </body>
+        </html>
+        """
+        
+        success = email_sender.send_email(subject=subject, body=body, is_html=True)
+        
+        return jsonify({'success': success})
+    except Exception as e:
+        app.logger.error(f"Lỗi khi kiểm tra email: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 @app.route('/api/attack_logs')
 def get_attack_logs():
     """API để lấy log tấn công DDoS."""
