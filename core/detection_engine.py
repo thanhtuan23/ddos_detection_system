@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Callable, Any, Optional
 from sklearn.base import BaseEstimator
+from utils.ddos_logger import log_attack
 
 class DetectionEngine:
     """

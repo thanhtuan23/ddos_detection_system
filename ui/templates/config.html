@@ -1,0 +1,233 @@
+<!-- src/ddos_detection_system/ui/templates/config.html -->
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cấu hình - Hệ thống Phát hiện DDoS</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/"><i class="bi bi-shield-check me-2"></i>DDoS Detection</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/"><i class="bi bi-house me-1"></i>Trang chủ</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/dashboard"><i class="bi bi-graph-up me-1"></i>Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/config"><i class="bi bi-gear me-1"></i>Cấu hình</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/logs"><i class="bi bi-journal-text me-1"></i>Nhật ký</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="bi bi-gear me-2"></i>Cấu hình Hệ thống</h1>
+            <div id="system-status-indicator">
+                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                    <span class="visually-hidden">Đang tải...</span>
+                </div>
+                <span class="ms-2">Đang tải...</span>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card dashboard-card config-form">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="bi bi-search me-2"></i>Cấu hình Phát hiện</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="detection-form">
+                            <div class="mb-3">
+                                <label for="detection_threshold" class="form-label">Ngưỡng phát hiện</label>
+                                <div class="input-group">
+                                    <input type="range" class="form-range" id="detection_threshold" min="0.5" max="0.9" step="0.05" value="0.7">
+                                    <span class="ms-3" id="threshold_value">0.7</span>
+                                </div>
+                                <div class="form-text">
+                                    <span class="text-danger">Thấp (0.5)</span>
+                                    <span class="float-end text-primary">Cao (0.9)</span>
+                                </div>
+                                <div class="form-text">
+                                    Ngưỡng thấp phát hiện nhiều hơn nhưng có thể có cảnh báo giả. Ngưỡng cao giảm cảnh báo giả nhưng có thể bỏ qua tấn công.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="batch_size" class="form-label">Kích thước batch</label>
+                                <select class="form-select" id="batch_size">
+                                    <option value="3">3 (Phát hiện nhanh)</option>
+                                    <option value="5">5 (Cân bằng)</option>
+                                    <option value="10">10 (Tiết kiệm tài nguyên)</option>
+                                    <option value="20">20 (Hiệu suất cao)</option>
+                                </select>
+                                <div class="form-text">
+                                    Số lượng luồng mạng được phân tích cùng lúc.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="check_interval" class="form-label">Khoảng thời gian kiểm tra (giây)</label>
+                                <input type="number" class="form-control" id="check_interval" min="0.1" max="5" step="0.1" value="1.0">
+                                <div class="form-text">
+                                    Thời gian giữa các lần phân tích luồng mạng.
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-save me-1"></i>Lưu cấu hình
+                                </button>
+                                <button type="button" id="detection-toggle" class="btn btn-success">
+                                    <i class="bi bi-play-fill me-1"></i>Bắt đầu phát hiện
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6 mb-4">
+                <div class="card dashboard-card config-form">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0"><i class="bi bi-shield me-2"></i>Cấu hình Ngăn chặn</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="prevention-form">
+                            <div class="mb-3">
+                                <label for="block_duration" class="form-label">Thời gian chặn IP (giây)</label>
+                                <input type="number" class="form-control" id="block_duration" min="60" max="86400" step="60" value="300">
+                                <div class="form-text">
+                                    Thời gian chặn IP sau khi phát hiện tấn công.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="whitelist" class="form-label">Danh sách IP không bị chặn</label>
+                                <textarea class="form-control" id="whitelist" rows="3" placeholder="Nhập các địa chỉ IP, phân cách bằng dấu phẩy"></textarea>
+                                <div class="form-text">
+                                    Các địa chỉ IP trong danh sách này sẽ không bị chặn ngay cả khi phát hiện tấn công.
+                                </div>
+                            </div>
+                            
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="enable_auto_block" checked>
+                                <label class="form-check-label" for="enable_auto_block">Tự động chặn IP tấn công</label>
+                                <div class="form-text">
+                                    Khi bật, hệ thống sẽ tự động chặn các IP thực hiện tấn công DDoS.
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-save me-1"></i>Lưu cấu hình
+                                </button>
+                                <button type="button" id="prevention-toggle" class="btn btn-success">
+                                    <i class="bi bi-play-fill me-1"></i>Bắt đầu ngăn chặn
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-12 mb-4">
+                <div class="card dashboard-card">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0"><i class="bi bi-envelope me-2"></i>Cấu hình Thông báo</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="notification-form">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="smtp_server" class="form-label">Máy chủ SMTP</label>
+                                        <input type="text" class="form-control" id="smtp_server" placeholder="smtp.gmail.com">
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="smtp_port" class="form-label">Cổng SMTP</label>
+                                        <input type="number" class="form-control" id="smtp_port" placeholder="465">
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="sender_email" class="form-label">Email người gửi</label>
+                                        <input type="email" class="form-control" id="sender_email" placeholder="your-email@gmail.com">
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="email_password" class="form-label">Mật khẩu email</label>
+                                        <input type="password" class="form-control" id="email_password" placeholder="App Password">
+                                        <div class="form-text">
+                                            Sử dụng App Password nếu bạn đã bật xác thực 2 yếu tố.
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="recipients" class="form-label">Người nhận</label>
+                                        <textarea class="form-control" id="recipients" rows="3" placeholder="admin@example.com, security@example.com"></textarea>
+                                        <div class="form-text">
+                                            Các địa chỉ email nhận thông báo, phân cách bằng dấu phẩy.
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="cooldown_period" class="form-label">Thời gian chờ giữa các thông báo (giây)</label>
+                                        <input type="number" class="form-control" id="cooldown_period" min="60" max="3600" step="60" value="300">
+                                        <div class="form-text">
+                                            Thời gian tối thiểu giữa các thông báo email để tránh gửi quá nhiều.
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="enable_notifications" checked>
+                                        <label class="form-check-label" for="enable_notifications">Bật thông báo email</label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="text-end">
+                                <button type="button" id="test-email" class="btn btn-outline-primary me-2">
+                                    <i class="bi bi-envelope-check me-1"></i>Kiểm tra email
+                                </button>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-save me-1"></i>Lưu cấu hình
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer mt-5 py-3 bg-dark">
+        <div class="container text-center">
+            <span class="text-muted">© 2025 Hệ thống Phát hiện và Ngăn chặn DDoS</span>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/config.js') }}"></script>
+</body>
+</html>

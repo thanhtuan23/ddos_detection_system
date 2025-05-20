@@ -1,5 +1,5 @@
 # src/ddos_detection_system/ui/app.py
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request, redirect, url_for, send_file
 import threading
 import time
 import logging
@@ -19,6 +19,11 @@ system_state = {
     'detection_stats': {},
     'system_info': {}
 }
+
+# Thêm ở đầu file để tắt thông báo debug
+
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.WARNING)
 
 # Lock để đồng bộ hóa truy cập vào system_state
 state_lock = threading.Lock()
@@ -139,6 +144,75 @@ def update_config():
         success = app.update_config_callback(config_data)
         return jsonify({'success': success})
     return jsonify({'success': False, 'error': 'Callback not registered'})
+@app.route('/api/attack_logs')
+def get_attack_logs():
+    """API để lấy log tấn công DDoS."""
+    log_file = 'logs/ddos_attacks.log'
+    
+    # Nếu file không tồn tại, trả về danh sách rỗng
+    if not os.path.exists(log_file):
+        return jsonify([])
+    
+    # Lọc theo các tham số
+    attack_type = request.args.get('attack_type')
+    min_confidence = float(request.args.get('min_confidence', 0.5))
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    
+    logs = []
+    
+    with open(log_file, 'r') as f:
+        reader = csv.reader(f)
+        
+        # Bỏ qua header
+        header = next(reader, None)
+        
+        # Đọc các bản ghi
+        for row in reader:
+            if len(row) >= 8:  # Đảm bảo đủ cột
+                timestamp, attack, src_ip, dst_ip, confidence, protocol, packet_rate, byte_rate = row
+                
+                # Áp dụng bộ lọc
+                if attack_type and attack != attack_type:
+                    continue
+                    
+                try:
+                    if float(confidence) < min_confidence:
+                        continue
+                except:
+                    pass
+                
+                if date_from:
+                    if timestamp.split(' ')[0] < date_from:
+                        continue
+                
+                if date_to:
+                    if timestamp.split(' ')[0] > date_to:
+                        continue
+                
+                logs.append({
+                    'timestamp': timestamp,
+                    'attack_type': attack,
+                    'src_ip': src_ip,
+                    'dst_ip': dst_ip,
+                    'confidence': confidence,
+                    'protocol': protocol,
+                    'packet_rate': packet_rate,
+                    'byte_rate': byte_rate
+                })
+    
+    # Trả về kết quả, giới hạn 1000 bản ghi gần nhất
+    return jsonify(logs[-1000:])
+
+@app.route('/api/download_logs')
+def download_logs():
+    """API để tải xuống file log tấn công DDoS."""
+    log_file = 'logs/ddos_attacks.log'
+    
+    if not os.path.exists(log_file):
+        return jsonify({'error': 'Log file not found'}), 404
+    
+    return send_file(log_file, as_attachment=True, download_name='ddos_attacks.csv')
 
 # Hàm đăng ký các callbacks từ controller chính
 def register_callbacks(callbacks: Dict[str, callable]):

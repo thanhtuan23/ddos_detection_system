@@ -149,37 +149,79 @@ class NotificationService:
                 if ':' in parts[1]:
                     dst_ip = parts[1].split(':')[0]
             
+            # Đánh giá mức độ nghiêm trọng dựa trên độ tin cậy
+            severity = "TRUNG BÌNH"
+            if confidence > 0.8:
+                severity = "CAO"
+            elif confidence < 0.6:
+                severity = "THẤP"
+                
+            # Tính toán tốc độ gói và băng thông
+            packet_rate = details.get('Packet Rate', 0)
+            byte_rate = details.get('Byte Rate', 0)
+            
+            # Chuyển đổi byte_rate thành MB/s
+            mbps = byte_rate * 8 / 1000000
+            
             # Tạo nội dung email
-            subject = f"[CẢNH BÁO DDOS] Phát hiện tấn công {attack_type}"
+            subject = f"[CẢNH BÁO DDOS] Phát hiện tấn công {attack_type} - Mức độ: {severity}"
             
             body = f"""
             <html>
-            <body>
-            <h2>Cảnh báo: Phát hiện tấn công DDoS</h2>
-            <p>Hệ thống đã phát hiện một cuộc tấn công DDoS tiềm ẩn.</p>
-            
-            <h3>Chi tiết cuộc tấn công:</h3>
-            <ul>
-                <li><strong>Loại tấn công:</strong> {attack_type}</li>
-                <li><strong>Độ tin cậy:</strong> {confidence:.2f}</li>
-                <li><strong>Thời gian phát hiện:</strong> {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}</li>
-                <li><strong>IP nguồn:</strong> {src_ip}</li>
-                <li><strong>IP đích:</strong> {dst_ip}</li>
-            </ul>
-            
-            <h3>Thông tin gói tin:</h3>
-            <ul>
-            """
-            
-            # Thêm chi tiết về gói tin
-            for key, value in details.items():
-                if key != 'Flow Key' and key != 'Protocol':  # Đã hiển thị ở trên
-                    body += f"<li><strong>{key}:</strong> {value}</li>\n"
-            
-            body += """
-            </ul>
-            
-            <p>Vui lòng kiểm tra hệ thống của bạn và áp dụng các biện pháp thích hợp.</p>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #f0ad4e; border-left: 5px solid #d9534f;">
+                    <h2 style="color: #d9534f; margin-top: 0;">⚠️ CẢNH BÁO: PHÁT HIỆN TẤN CÔNG DDOS</h2>
+                    
+                    <div style="background-color: #f8f8f8; padding: 15px; margin-bottom: 20px; border-radius: 4px;">
+                        <table style="width: 100%">
+                            <tr>
+                                <td style="font-weight: bold; padding: 8px 0;">Loại tấn công:</td>
+                                <td>{attack_type}</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: bold; padding: 8px 0;">Mức độ nghiêm trọng:</td>
+                                <td style="color: {'#d9534f' if severity == 'CAO' else '#f0ad4e' if severity == 'TRUNG BÌNH' else '#5bc0de'};">
+                                    {severity} (Độ tin cậy: {confidence:.0%})
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: bold; padding: 8px 0;">Thời gian phát hiện:</td>
+                                <td>{time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(timestamp))}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    
+                    <h3 style="margin-bottom: 10px;">Thông tin cơ bản:</h3>
+                    <div style="background-color: #f8f8f8; padding: 15px; margin-bottom: 20px; border-radius: 4px;">
+                        <table style="width: 100%">
+                            <tr>
+                                <td style="font-weight: bold; padding: 8px 0; width: 170px;">IP nguồn:</td>
+                                <td>{src_ip}</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: bold; padding: 8px 0;">IP đích:</td>
+                                <td>{dst_ip}</td>
+                            </tr>
+                            <tr>
+                                <td style="font-weight: bold; padding: 8px 0;">Tốc độ:</td>
+                                <td>{packet_rate:.0f} gói/giây ({mbps:.2f} Mbps)</td>
+                            </tr>
+                        </table>
+                    </div>
+                    
+                    <div style="background-color: #d9edf7; padding: 15px; margin: 25px 0; border-radius: 4px;">
+                        <h3 style="margin-top: 0; color: #31708f;">Hành động đề xuất:</h3>
+                        <ul style="margin-bottom: 0;">
+                            <li>Kiểm tra tình trạng máy chủ và dịch vụ mạng</li>
+                            <li>Xác minh lưu lượng mạng bất thường từ IP nguồn</li>
+                            <li>Cân nhắc chặn IP nguồn nếu xác nhận đây là cuộc tấn công</li>
+                        </ul>
+                    </div>
+                    
+                    <p style="font-size: 12px; color: #777; margin-top: 30px;">
+                        Email này được gửi tự động từ hệ thống phát hiện DDoS. Vui lòng không trả lời email này.
+                    </p>
+                </div>
             </body>
             </html>
             """

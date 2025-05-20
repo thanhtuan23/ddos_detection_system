@@ -9,6 +9,16 @@ import logging.config
 import configparser
 from typing import Dict, Any
 
+# Cấu hình logging sớm để giảm bớt thông báo không cần thiết
+logging.config.fileConfig('config/logging.conf')
+
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.setLevel(logging.WARNING)
+
+# Bỏ qua cảnh báo sklearn về feature names
+import warnings
+warnings.filterwarnings('ignore', message='X does not have valid feature names')
+
 # Thêm thư mục gốc vào sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
