@@ -4,6 +4,7 @@ import threading
 import time
 import logging
 from typing import Dict, List, Any, Tuple, Set
+from utils.ddos_logger import update_ip_blocked_status
 
 class PreventionEngine:
     """
@@ -118,6 +119,10 @@ class PreventionEngine:
                     f"Chặn IP {ip} do tấn công {attack_type} "
                     f"(độ tin cậy: {confidence:.2f}) trong {self.block_duration} giây"
                 )
+
+                #Cập nhật logger
+                update_ip_blocked_status(ip,True)
+                
                 return True
                 
             except Exception as e:
@@ -156,6 +161,8 @@ class PreventionEngine:
         try:
             cmd = ["iptables", "-D", "DDOS_PROTECTION", "-s", ip, "-j", "DROP"]
             subprocess.run(cmd, check=True)
+
+            update_ip_blocked_status(ip, False)
             self.logger.info(f"Đã bỏ chặn IP {ip}")
             return True
         except Exception as e:

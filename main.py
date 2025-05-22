@@ -125,6 +125,7 @@ class DDoSDetectionSystem:
             'start_prevention_callback': self.start_prevention,
             'stop_prevention_callback': self.stop_prevention,
             'unblock_ip_callback': self.prevention_engine.unblock_ip,
+            'block_ip_callback': self.prevention_engine.block_ip,  # Thêm callback này
             'update_config_callback': self.update_config
         }
         register_callbacks(callbacks)

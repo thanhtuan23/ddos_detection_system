@@ -9,6 +9,7 @@ from typing import Dict, List, Any
 import json
 import os
 from utils.email_sender import EmailSender
+from utils.ddos_logger import get_all_attack_ips
 
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Tắt cache
@@ -147,6 +148,19 @@ def get_blocked_ips():
     except Exception as e:
         app.logger.error(f"Lỗi khi lấy danh sách IP bị chặn: {e}")
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/block_ip', methods=['POST'])
+def block_ip():
+    """API để chặn một IP."""
+    ip = request.json.get('ip')
+    if not ip:
+        return jsonify({'success': False, 'error': 'No IP provided'})
+        
+    if hasattr(app, 'block_ip_callback'):
+        attack_info = {'attack_type': 'Manual', 'confidence': 1.0}
+        success = app.block_ip_callback(ip, attack_info)
+        return jsonify({'success': success})
+    return jsonify({'success': False, 'error': 'Callback not registered'})
 
 @app.route('/api/unblock_ip', methods=['POST'])
 def unblock_ip():
@@ -383,6 +397,68 @@ def download_logs():
     
     return send_file(log_file, as_attachment=True, download_name='ddos_attacks.csv')
 
+# Thêm API để lấy danh sách IP tấn công
+@app.route('/api/attack_ips')
+def get_attack_ips():
+    """API để lấy danh sách tất cả các IP tấn công."""
+    try:
+        # Lọc theo các tham số
+        min_attacks = int(request.args.get('min_attacks', 1))
+        min_confidence = float(request.args.get('min_confidence', 0.0))
+        attack_type = request.args.get('attack_type')
+        sort_by = request.args.get('sort_by', 'attack_count')
+        sort_order = request.args.get('sort_order', 'desc')
+        
+        # Lấy danh sách IP
+        ip_list = get_all_attack_ips()
+        
+        # Áp dụng bộ lọc
+        filtered_list = []
+        for ip_data in ip_list:
+            if ip_data['attack_count'] < min_attacks:
+                continue
+                
+            if ip_data['confidence_avg'] < min_confidence:
+                continue
+                
+            if attack_type and attack_type not in ip_data['attack_types']:
+                continue
+                
+            filtered_list.append(ip_data)
+        
+        # Sắp xếp
+        reverse = sort_order.lower() == 'desc'
+        if sort_by == 'ip':
+            filtered_list.sort(key=lambda x: x['ip'], reverse=reverse)
+        elif sort_by == 'first_seen':
+            filtered_list.sort(key=lambda x: x['first_seen'], reverse=reverse)
+        elif sort_by == 'last_seen':
+            filtered_list.sort(key=lambda x: x['last_seen'], reverse=reverse)
+        elif sort_by == 'confidence':
+            filtered_list.sort(key=lambda x: x['confidence_avg'], reverse=reverse)
+        else:  # attack_count
+            filtered_list.sort(key=lambda x: x['attack_count'], reverse=reverse)
+        
+        return jsonify(filtered_list)
+    except Exception as e:
+        app.logger.error(f"Lỗi khi lấy danh sách IP tấn công: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Thêm API để tải xuống danh sách IP tấn công
+@app.route('/api/download_attack_ips')
+def download_attack_ips():
+    """API để tải xuống danh sách IP tấn công dưới dạng CSV."""
+    try:
+        ip_log_file = 'logs/ddos_ips.log'
+        
+        if not os.path.exists(ip_log_file):
+            return jsonify({'error': 'IP log file not found'}), 404
+        
+        return send_file(ip_log_file, as_attachment=True, download_name='ddos_attack_ips.csv')
+    except Exception as e:
+        app.logger.error(f"Lỗi khi tải xuống danh sách IP tấn công: {e}")
+        return jsonify({'error': str(e)}), 500
+    
 # Hàm đăng ký các callbacks từ controller chính
 def register_callbacks(callbacks: Dict[str, callable]):
     for name, callback in callbacks.items():
