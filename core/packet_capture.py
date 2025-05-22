@@ -67,100 +67,92 @@ class PacketCapture:
             
     def _process_packet(self, packet) -> Optional[Dict[str, Any]]:
         """
-        Xử lý gói tin riêng lẻ và cập nhật thống kê luồng.
-        
-        Args:
-            packet: Gói tin pyshark đã bắt
-            
-        Returns:
-            Dict containing các đặc trưng của luồng nếu đủ dữ liệu, None nếu không
+        Xử lý gói tin riêng lẻ và cập nhật thống kê luồng, bao gồm nhận diện MSSQL traffic.
         """
         try:
-            # Xác định thông tin luồng
             if 'ip' in packet:
                 src_ip = packet.ip.src
                 dst_ip = packet.ip.dst
                 protocol = packet.transport_layer if hasattr(packet, 'transport_layer') else 'Unknown'
-                
+
                 if protocol == 'TCP' and hasattr(packet, 'tcp'):
-                    # Xử lý các port
                     src_port = int(packet.tcp.srcport)
                     dst_port = int(packet.tcp.dstport)
-
-                    # Kiểm tra xem có là traffic MSSQL không
-                    is_mssql_traffic = False
-                    if (src_port == 1433 or dst_port == 1433):
-                        is_mssql_traffic = True
-
-                    # Tách các thông tin v.v. và thêm vào flow_data
                     flow_key = f"{src_ip}:{src_port}-{dst_ip}:{dst_port}-TCP"
-                    
-                    if not flow_key in self.flow_stats:
+
+                    # Nhận diện traffic MSSQL qua cổng 1433
+                    is_mssql_traffic = src_port == 1433 or dst_port == 1433
+
+                    if flow_key not in self.flow_stats:
                         self.flow_stats[flow_key] = {
                             'start_time': time.time(),
                             'packet_count': 0,
                             'byte_count': 0,
+                            'syn_count': 0,
+                            'fin_count': 0,
+                            'rst_count': 0,
+                            'psh_count': 0,
+                            'ack_count': 0,
+                            'urg_count': 0,
                             'packet_sizes': [],
                             'is_mssql_traffic': is_mssql_traffic
                         }
-                    
+
                     stats = self.flow_stats[flow_key]
                     stats['packet_count'] += 1
                     stats['byte_count'] += int(packet.length)
-                    
-                    # Xử lý các port thành int
-                    if src_port != dst_port:
-                        stats['src_port'] = src_port
-                        stats['dst_port'] = dst_port
-                    
                     stats['packet_sizes'].append(int(packet.length))
-                    
-                    # Tính toán các đặc trưng nếu đã thu thập đủ gói tin
+
+                    # Cập nhật các cờ TCP nếu có
+                    if hasattr(packet.tcp, 'flags'):
+                        flags = int(packet.tcp.flags, 16)
+                        if flags & 0x02:  # SYN
+                            stats['syn_count'] += 1
+                        if flags & 0x01:  # FIN
+                            stats['fin_count'] += 1
+                        if flags & 0x04:  # RST
+                            stats['rst_count'] += 1
+                        if flags & 0x08:  # PSH
+                            stats['psh_count'] += 1
+                        if flags & 0x10:  # ACK
+                            stats['ack_count'] += 1
+                        if flags & 0x20:  # URG
+                            stats['urg_count'] += 1
+
                     if stats['packet_count'] >= 10:
                         flow_features = self._calculate_flow_features(flow_key)
-                        
-                        # Xóa các luồng cũ để giải phóng bộ nhớ
                         if len(self.flow_stats) > 1000:
                             self._clean_old_flows()
-                            
                         return flow_features
-                
+
                 elif protocol == 'UDP' and hasattr(packet, 'udp'):
-                    # Tách các thông tin v.v. và thêm vào flow_data
                     src_port = int(packet.udp.srcport)
                     dst_port = int(packet.udp.dstport)
-
                     flow_key = f"{src_ip}:{src_port}-{dst_ip}:{dst_port}-UDP"
-                    
-                    if not flow_key in self.flow_stats:
+
+                    if flow_key not in self.flow_stats:
                         self.flow_stats[flow_key] = {
                             'start_time': time.time(),
                             'packet_count': 0,
                             'byte_count': 0,
                             'packet_sizes': []
                         }
-                    
+
                     stats = self.flow_stats[flow_key]
                     stats['packet_count'] += 1
                     stats['byte_count'] += int(packet.length)
                     stats['packet_sizes'].append(int(packet.length))
-                    
-                    # Tính toán các đặc trưng nếu đã thu thập đủ gói tin
+
                     if stats['packet_count'] >= 10:
                         flow_features = self._calculate_flow_features(flow_key)
-                        
-                        # Xóa các luồng cũ để giải phóng bộ nhớ
                         if len(self.flow_stats) > 1000:
                             self._clean_old_flows()
-                            
                         return flow_features
-            
             return None
-
         except Exception as e:
             print(f"Lỗi khi xử lý gói tin: {e}")
             return None
-    
+
     def _calculate_flow_features(self, flow_key: str) -> Dict[str, Any]:
         """
         Tính toán các đặc trưng luồng từ các gói tin đã thu thập.
