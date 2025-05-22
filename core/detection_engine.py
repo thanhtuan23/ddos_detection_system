@@ -1,4 +1,5 @@
 # src/ddos_detection_system/core/detection_engine.py
+import logging
 import time
 import queue
 import threading
@@ -35,6 +36,7 @@ class DetectionEngine:
         self.detection_threshold = detection_threshold
         self.check_interval = check_interval
         self.batch_size = batch_size
+        self.logger = logging.getLogger("DetectionEngine")
         
         self.attack_log = {}  # Nhật ký các cuộc tấn công
         self.running = False
