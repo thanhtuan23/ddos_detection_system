@@ -14,5 +14,5 @@ sudo ./install.sh
 3. Cấu hình hệ thống: Chỉnh sửa file config/config.ini với cấu hình phù hợp.
 4. Khởi động hệ thống
 ```bash
-sudo python main.py
+sudo venv/bin/python main.py
 ```
