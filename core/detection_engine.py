@@ -129,19 +129,6 @@ class DetectionEngine:
             flows: Danh sách các luồng mạng để phân tích
             flow_keys: Danh sách các khóa luồng tương ứng
         """
-        if attack_prob >= self.detection_threshold:
-            # Ghi lại cuộc tấn công
-            self.detection_counts['attack_flows'] += 1
-            self._log_attack(flow_key, attack_type, attack_prob, flows[i])
-            
-            # Ghi log tấn công với logger chuyên dụng
-            log_attack({
-                'flow_key': flow_key,
-                'attack_type': attack_type,
-                'confidence': attack_prob,
-                'timestamp': time.time(),
-                'details': flows[i]
-            })
         if not flows:
             return
             
