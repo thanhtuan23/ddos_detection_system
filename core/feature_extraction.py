@@ -83,10 +83,20 @@ class FeatureExtractor:
             
         # Thêm đặc trưng nhận biết UDP Flood
         if protocol == 'UDP':
-            features['UDP Flood Indicator'] = 1 if features['Packet Rate'] > 100 else 0
-        else:
-            features['UDP Flood Indicator'] = 0
-         
+            # fChỉ coi là UDP Flood nếu tốc độ gói rất cao
+            features['UDP Flood Indicator'] = 1 if features['Packet Rate'] > 1000 else 0
+                
+            # Thêm đặc điểm YouTube - kích thước gói lớn nhưng ổn định
+            packet_sizes = flow_data.get('packet_sizes', [])
+            if packet_sizes:
+                packet_size_std = np.std(packet_sizes)
+                # YouTube thường có kích thước gói khá ổn định
+                if packet_size_std < 200 and features['Packet Length Mean'] > 1000:
+                    features['Likely Streaming'] = 1
+                else:
+                    features['Likely Streaming'] = 0
+            else:
+                features['Likely Streaming'] = 0
         return features
     
     def prepare_features_for_model(self, features_list: List[Dict[str, Any]]) -> np.ndarray:
