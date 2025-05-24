@@ -12,7 +12,6 @@ import logging
 from typing import Dict, List, Callable, Any, Optional, Set, Tuple
 from sklearn.base import BaseEstimator
 from utils.ddos_logger import log_attack
-from config import whitelist  # Giả sử whitelist được định nghĩa trong file config.py
 
 class DetectionEngine:
     """
@@ -22,6 +21,7 @@ class DetectionEngine:
     def __init__(self, model: BaseEstimator, feature_extractor, notification_callback: Callable,
                  packet_queue: queue.Queue, detection_threshold: float = 0.7,
                  check_interval: float = 1.0, batch_size: int = 10,
+                 whitelist: Optional[Set[str]] = None,
                  config: Optional[Dict[str, Any]] = None):
         """
         Khởi tạo engine phát hiện DDoS.

@@ -8,7 +8,6 @@ import logging
 import logging.config
 import configparser
 from typing import Dict, Any
-from config import whitelist
 
 # Cấu hình logging sớm để giảm bớt thông báo không cần thiết
 logging.config.fileConfig('config/logging.conf')
@@ -92,23 +91,9 @@ class DDoSDetectionSystem:
             
             # Đọc whitelist
             whitelist = [ip.strip() for ip in self.config.get('Prevention', 'whitelist').split(',')]
+            whitelist_set = set(whitelist)  # Chuyển đổi thành set
             
             # Thiết lập engine phát hiện với whitelist
-            self.detection_engine = DetectionEngine(
-                self.model, 
-                self.feature_extractor, 
-                self.notification_service.notify,
-                self.packet_queue,
-                detection_threshold,
-                check_interval,
-                batch_size,
-                set(whitelist)  # Chuyển đổi thành set và truyền vào
-            )
-            
-            # Thiết lập engine ngăn chặn với cùng whitelist
-            self.prevention_engine = PreventionEngine(block_duration, whitelist)
-
-            # Thiết lập engine phát hiện
             detection_threshold = self.config.getfloat('Detection', 'detection_threshold')
             check_interval = self.config.getfloat('Detection', 'check_interval')
             batch_size = self.config.getint('Detection', 'batch_size')
@@ -119,14 +104,14 @@ class DDoSDetectionSystem:
                 self.packet_queue,
                 detection_threshold,
                 check_interval,
-                batch_size
+                batch_size,
+                whitelist_set  # Truyền whitelist vào đây
             )
             
             # Thiết lập engine ngăn chặn
             block_duration = self.config.getint('Prevention', 'block_duration')
-            whitelist = [ip.strip() for ip in self.config.get('Prevention', 'whitelist').split(',')]
-            self.prevention_engine = PreventionEngine(block_duration, whitelist)
-            
+            self.prevention_engine = PreventionEngine(block_duration, whitelist_set)
+
             # Đăng ký callbacks cho WebUI
             self._register_ui_callbacks()
             
