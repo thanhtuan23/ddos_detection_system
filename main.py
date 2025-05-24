@@ -8,6 +8,7 @@ import logging
 import logging.config
 import configparser
 from typing import Dict, Any
+from config import whitelist
 
 # Cấu hình logging sớm để giảm bớt thông báo không cần thiết
 logging.config.fileConfig('config/logging.conf')
@@ -89,6 +90,24 @@ class DDoSDetectionSystem:
             # Đăng ký callback để nhận thông báo tấn công
             self.notification_service.register_callback('attack_detected', on_attack_detected)
             
+            # Đọc whitelist
+            whitelist = [ip.strip() for ip in self.config.get('Prevention', 'whitelist').split(',')]
+            
+            # Thiết lập engine phát hiện với whitelist
+            self.detection_engine = DetectionEngine(
+                self.model, 
+                self.feature_extractor, 
+                self.notification_service.notify,
+                self.packet_queue,
+                detection_threshold,
+                check_interval,
+                batch_size,
+                set(whitelist)  # Chuyển đổi thành set và truyền vào
+            )
+            
+            # Thiết lập engine ngăn chặn với cùng whitelist
+            self.prevention_engine = PreventionEngine(block_duration, whitelist)
+
             # Thiết lập engine phát hiện
             detection_threshold = self.config.getfloat('Detection', 'detection_threshold')
             check_interval = self.config.getfloat('Detection', 'check_interval')
@@ -126,7 +145,8 @@ class DDoSDetectionSystem:
             'stop_prevention_callback': self.stop_prevention,
             'unblock_ip_callback': self.prevention_engine.unblock_ip,
             'block_ip_callback': self.prevention_engine.block_ip,  # Thêm callback này
-            'update_config_callback': self.update_config
+            'update_config_callback': self.update_config,
+            'add_to_whitelist_callback': self.add_to_whitelist,
         }
         register_callbacks(callbacks)
     
@@ -333,7 +353,10 @@ class DDoSDetectionSystem:
                     self.prevention_engine.block_duration = int(config['block_duration'])
                     
                 if 'whitelist' in config and isinstance(config['whitelist'], list):
-                    self.prevention_engine.whitelist = set(config['whitelist'])
+                    # Cập nhật whitelist cho cả hai engine
+                    whitelist_set = set(config['whitelist'])
+                    self.prevention_engine.whitelist = whitelist_set
+                    self.detection_engine.whitelist = whitelist_set
             
             # Xử lý cấu hình Notification
             elif section == 'notification':
@@ -560,6 +583,31 @@ class DDoSDetectionSystem:
             self.logger.critical(f"Lỗi không xử lý được: {e}")
             self.stop_all()
 
+    def add_to_whitelist(self, ip):
+        """Thêm IP vào whitelist và cập nhật file cấu hình."""
+        try:
+            # Thêm vào whitelist của cả hai engine
+            self.prevention_engine.whitelist.add(ip)
+            self.detection_engine.whitelist.add(ip)
+            
+            # Cập nhật file cấu hình
+            config_parser = configparser.ConfigParser()
+            config_parser.read('config/config.ini')
+            
+            # Đọc whitelist hiện tại và thêm IP mới
+            current_whitelist = config_parser.get('Prevention', 'whitelist')
+            new_whitelist = current_whitelist + f", {ip}" if current_whitelist else ip
+            
+            # Lưu lại vào file
+            config_parser.set('Prevention', 'whitelist', new_whitelist)
+            with open('config/config.ini', 'w') as f:
+                config_parser.write(f)
+                
+            self.logger.info(f"Đã thêm IP {ip} vào whitelist")
+            return True
+        except Exception as e:
+            self.logger.error(f"Lỗi khi thêm IP vào whitelist: {e}")
+            return False
 if __name__ == "__main__":
     # Đường dẫn mặc định đến tệp tin cấu hình
     config_path = "config/config.ini"
