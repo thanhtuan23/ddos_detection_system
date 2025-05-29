@@ -97,16 +97,16 @@ class DDoSDetectionSystem:
             check_interval = self.config.getfloat('Detection', 'check_interval')
             batch_size = self.config.getint('Detection', 'batch_size')
             
-            # Đọc cấu hình streaming services
-            streaming_services = self.config.get('Detection', 'streaming_services', 
-                                                fallback='youtube,netflix').split(',')
-            streaming_services = [s.strip() for s in streaming_services]
+            # Đọc cấu hình streaming services và ngưỡng false positive (để tham khảo sau này)
+            self.streaming_services = self.config.get('Detection', 'streaming_services', 
+                                                    fallback='youtube,netflix').split(',')
+            self.streaming_services = [s.strip() for s in self.streaming_services]
             
-            # Đọc ngưỡng false positive
-            false_positive_threshold = self.config.getfloat('Detection', 'false_positive_threshold', 
-                                                           fallback=0.8)
+            self.false_positive_threshold = self.config.getfloat('Detection', 
+                                                          'false_positive_threshold', 
+                                                          fallback=0.8)
             
-            # Khởi tạo detection engine với các tham số mới
+            # Khởi tạo detection engine KHÔNG truyền các tham số chưa được hỗ trợ
             self.detection_engine = DetectionEngine(
                 self.model, 
                 self.feature_extractor, 
@@ -114,10 +114,17 @@ class DDoSDetectionSystem:
                 self.packet_queue,
                 detection_threshold,
                 check_interval,
-                batch_size,
-                streaming_services=streaming_services,
-                false_positive_threshold=false_positive_threshold
+                batch_size
+                # streaming_services và false_positive_threshold bị loại bỏ
             )
+            
+            # Lưu các tham số này vào thuộc tính của detection_engine (nếu engine hỗ trợ)
+            try:
+                self.detection_engine.streaming_services = self.streaming_services
+                self.detection_engine.false_positive_threshold = self.false_positive_threshold
+                self.logger.info(f"Đã cài đặt thông tin dịch vụ streaming: {len(self.streaming_services)} dịch vụ")
+            except AttributeError:
+                self.logger.warning("Detection Engine không hỗ trợ nhận diện dịch vụ streaming tự động")
             
             # Thiết lập engine ngăn chặn
             block_duration = self.config.getint('Prevention', 'block_duration')

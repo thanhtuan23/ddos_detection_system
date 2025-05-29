@@ -346,10 +346,6 @@ class DetectionEngine:
         attack_type = "Normal"
         confidence = float(probabilities[int(prediction)])
         
-        # Bỏ qua các cảnh báo trên luồng streaming từ YouTube và các dịch vụ video
-        is_likely_streaming = flow_features.get('Likely Streaming', 0) == 1
-        is_streaming_port = flow_features.get('Streaming Service Port', 0) == 1
-        
         # Tạo kết quả phân tích
         result = {
             'flow_key': flow_features.get('Flow Key', ''),
@@ -361,46 +357,35 @@ class DetectionEngine:
             'timestamp': time.time()
         }
         
-        # Nếu là luồng streaming có khả năng cao, đánh dấu không phải tấn công
-        if is_likely_streaming and is_streaming_port:
-            result['is_attack'] = False
-            result['attack_type'] = "Normal (Streaming)"
-            return result
+        # Nếu hỗ trợ phân tích streaming và có đặc trưng streaming
+        if hasattr(self, 'streaming_services') and hasattr(self, 'false_positive_threshold'):
+            # Kiểm tra xem có phải là dịch vụ streaming được cho phép không
+            is_likely_streaming = flow_features.get('Likely Streaming', 0) == 1
+            is_streaming_port = flow_features.get('Streaming Service Port', 0) == 1
+            
+            # Nếu phát hiện là streaming và confidence thấp hơn ngưỡng false positive
+            if is_likely_streaming and is_streaming_port and confidence < self.false_positive_threshold:
+                result['is_attack'] = False
+                result['attack_type'] = "Normal (Streaming)"
+                return result
         
-        # Đánh dấu loại tấn công cụ thể
+        # Đánh dấu loại tấn công cụ thể nếu là tấn công
         if result['is_attack']:
             protocol = flow_features.get('Protocol', 3)
             
             # Xác định loại tấn công
             if protocol == 0:  # TCP
-                if flow_features.get('SYN Flood Indicator', 0) == 1:
+                if flow_features.get('SYN Flag Rate', 0) > 0.8:
                     attack_type = "SYN Flood"
-                # Thêm các loại tấn công TCP khác...
+                
             elif protocol == 1:  # UDP
                 if flow_features.get('UDP Flood Indicator', 0) == 1:
                     attack_type = "UDP Flood"
-            
-            # Xác định MSSQL Attack (dựa trên cổng)
+                
+            # Phát hiện MSSQL Attack nếu có đặc trưng liên quan
             if flow_features.get('MSSQL Port Indicator', 0) == 1:
                 attack_type = "MSSQL Attack"
             
             result['attack_type'] = attack_type
-        
-        # Lấy thêm thông tin về địa chỉ IP
-        dst_ip = flow_features.get('Destination IP', '')
-        
-        # Kiểm tra xem đây có phải là dịch vụ nội bộ không
-        is_local_server = self._is_in_network_ranges(
-            dst_ip, 
-            self.config.get('Detection', 'local_network_ranges', 
-                            '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8')
-        )
-        
-        # Nếu sử dụng cổng thường dùng cho dịch vụ nội bộ và IP đích là local
-        # thì không đánh dấu là tấn công
-        if is_local_server and flow_features.get('Destination Port', 0) in self.local_service_ports:
-            result['is_attack'] = False
-            result['attack_type'] = "Normal (Local Service)"
-            return result
         
         return result
