@@ -76,7 +76,8 @@ class DDoSDetectionSystem:
             capture_filter = self.config.get('Network', 'capture_filter')
             self.packet_capture = PacketCapture(interface, self.packet_queue, capture_filter)
             
-            self.feature_extractor = FeatureExtractor(feature_columns)
+            # Truyền config cho feature_extractor
+            self.feature_extractor = FeatureExtractor(feature_columns, self.config)
             
             # Thiết lập dịch vụ thông báo
             email_config = {

@@ -6,14 +6,16 @@ from typing import Dict, Any, List, Tuple
 class FeatureExtractor:
     """Trích xuất và chuẩn hóa các đặc trưng từ dữ liệu luồng mạng."""
     
-    def __init__(self, feature_columns: List[str]):
+    def __init__(self, feature_columns: List[str], config=None):
         """
         Khởi tạo bộ trích xuất đặc trưng.
         
         Args:
             feature_columns: Danh sách các cột đặc trưng mà mô hình cần
+            config: Đối tượng cấu hình để đọc các tham số
         """
         self.feature_columns = feature_columns
+        self.config = config
         self.protocol_mappings = {
             'TCP': 0, 
             'UDP': 1, 
@@ -148,8 +150,11 @@ class FeatureExtractor:
         dst_ip = flow_data.get('Destination IP', '')
         
         # Tải danh sách port từ cấu hình
-        streaming_ports = [int(p) for p in self.config.get('Detection', 'streaming_ports', '443,33000,33001').split(',')]
-        local_service_ports = [int(p) for p in self.config.get('Detection', 'local_service_ports', '80,443,8080').split(',')]
+        streaming_ports_str = self._get_config_value('Detection', 'streaming_ports', '443,33000,33001')
+        streaming_ports = [int(p) for p in streaming_ports_str.split(',')]
+        
+        local_service_ports_str = self._get_config_value('Detection', 'local_service_ports', '80,443,8080')
+        local_service_ports = [int(p) for p in local_service_ports_str.split(',')]
         
         # Logic phân biệt streaming và dịch vụ local
         is_streaming_port = (dst_port in streaming_ports) or (src_port in streaming_ports)
@@ -168,21 +173,24 @@ class FeatureExtractor:
         # Thêm phương thức trợ giúp để kiểm tra IP private
         def _is_private_ip(self, ip: str) -> bool:
             """Kiểm tra xem một địa chỉ IP có phải là private không."""
-            octets = ip.split('.')
-            if len(octets) != 4:
-                return False
-            
-            # Kiểm tra các dải private IP phổ biến
-            if octets[0] == '10': 
-                return True
-            if octets[0] == '172' and 16 <= int(octets[1]) <= 31:
-                return True
-            if octets[0] == '192' and octets[1] == '168':
-                return True
-            if octets[0] == '127':
-                return True
+            try:
+                octets = ip.split('.')
+                if len(octets) != 4:
+                    return False
                 
-            return False
+                # Kiểm tra các dải private IP phổ biến
+                if octets[0] == '10': 
+                    return True
+                if octets[0] == '172' and 16 <= int(octets[1]) <= 31:
+                    return True
+                if octets[0] == '192' and octets[1] == '168':
+                    return True
+                if octets[0] == '127':
+                    return True
+                    
+                return False
+            except:
+                return False
         
         return features
     
@@ -208,3 +216,13 @@ class FeatureExtractor:
         df = df[self.feature_columns]
         
         return df.values
+    
+    def _get_config_value(self, section, key, default_value):
+        """Lấy giá trị từ config hoặc trả về giá trị mặc định nếu không có config."""
+        if self.config is None:
+            return default_value
+        
+        try:
+            return self.config.get(section, key, fallback=default_value)
+        except:
+            return default_value
