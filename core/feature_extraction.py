@@ -40,6 +40,7 @@ class FeatureExtractor:
         # Lấy cổng đích và nguồn
         dst_port = flow_data.get('Destination Port', 0)
         src_port = flow_data.get('Source Port', 0)
+        dst_ip = flow_data.get('Destination IP', '')
         
         # Các đặc trưng cơ bản
         features['Flow Duration'] = flow_data.get('Flow Duration', 0)
@@ -141,6 +142,48 @@ class FeatureExtractor:
             features['Small Packet Ratio'] = 0
             features['Streaming Service Port'] = 0
             
+        # Xác định dòng lưu lượng
+        dst_port = flow_data.get('Destination Port', 0)
+        src_port = flow_data.get('Source Port', 0)
+        dst_ip = flow_data.get('Destination IP', '')
+        
+        # Tải danh sách port từ cấu hình
+        streaming_ports = [int(p) for p in self.config.get('Detection', 'streaming_ports', '443,33000,33001').split(',')]
+        local_service_ports = [int(p) for p in self.config.get('Detection', 'local_service_ports', '80,443,8080').split(',')]
+        
+        # Logic phân biệt streaming và dịch vụ local
+        is_streaming_port = (dst_port in streaming_ports) or (src_port in streaming_ports)
+        is_local_service = False
+        
+        # Kiểm tra nếu đây là dịch vụ nội bộ 
+        if (dst_port in local_service_ports or src_port in local_service_ports):
+            # Kiểm tra nếu IP đích là IP private/local
+            is_local_service = self._is_private_ip(dst_ip)
+        
+        # Đánh dấu là streaming chỉ nếu:
+        # 1. Sử dụng streaming port và 
+        # 2. Không phải dịch vụ nội bộ
+        features['Streaming Service Port'] = 1 if (is_streaming_port and not is_local_service) else 0
+        
+        # Thêm phương thức trợ giúp để kiểm tra IP private
+        def _is_private_ip(self, ip: str) -> bool:
+            """Kiểm tra xem một địa chỉ IP có phải là private không."""
+            octets = ip.split('.')
+            if len(octets) != 4:
+                return False
+            
+            # Kiểm tra các dải private IP phổ biến
+            if octets[0] == '10': 
+                return True
+            if octets[0] == '172' and 16 <= int(octets[1]) <= 31:
+                return True
+            if octets[0] == '192' and octets[1] == '168':
+                return True
+            if octets[0] == '127':
+                return True
+                
+            return False
+        
         return features
     
     def prepare_features_for_model(self, features_list: List[Dict[str, Any]]) -> np.ndarray:

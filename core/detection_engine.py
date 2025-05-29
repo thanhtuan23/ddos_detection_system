@@ -386,4 +386,21 @@ class DetectionEngine:
             
             result['attack_type'] = attack_type
         
+        # Lấy thêm thông tin về địa chỉ IP
+        dst_ip = flow_features.get('Destination IP', '')
+        
+        # Kiểm tra xem đây có phải là dịch vụ nội bộ không
+        is_local_server = self._is_in_network_ranges(
+            dst_ip, 
+            self.config.get('Detection', 'local_network_ranges', 
+                            '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8')
+        )
+        
+        # Nếu sử dụng cổng thường dùng cho dịch vụ nội bộ và IP đích là local
+        # thì không đánh dấu là tấn công
+        if is_local_server and flow_features.get('Destination Port', 0) in self.local_service_ports:
+            result['is_attack'] = False
+            result['attack_type'] = "Normal (Local Service)"
+            return result
+        
         return result
