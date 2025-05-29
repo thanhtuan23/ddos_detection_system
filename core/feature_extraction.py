@@ -170,30 +170,29 @@ class FeatureExtractor:
         # 2. Không phải dịch vụ nội bộ
         features['Streaming Service Port'] = 1 if (is_streaming_port and not is_local_service) else 0
         
-        # Thêm phương thức trợ giúp để kiểm tra IP private
-        def _is_private_ip(self, ip: str) -> bool:
-            """Kiểm tra xem một địa chỉ IP có phải là private không."""
-            try:
-                octets = ip.split('.')
-                if len(octets) != 4:
-                    return False
-                
-                # Kiểm tra các dải private IP phổ biến
-                if octets[0] == '10': 
-                    return True
-                if octets[0] == '172' and 16 <= int(octets[1]) <= 31:
-                    return True
-                if octets[0] == '192' and octets[1] == '168':
-                    return True
-                if octets[0] == '127':
-                    return True
-                    
-                return False
-            except:
-                return False
-        
         return features
-    
+
+    def _is_private_ip(self, ip: str) -> bool:
+        """Kiểm tra xem một địa chỉ IP có phải là private không."""
+        try:
+            octets = ip.split('.')
+            if len(octets) != 4:
+                return False
+            
+            # Kiểm tra các dải private IP phổ biến
+            if octets[0] == '10': 
+                return True
+            if octets[0] == '172' and 16 <= int(octets[1]) <= 31:
+                return True
+            if octets[0] == '192' and octets[1] == '168':
+                return True
+            if octets[0] == '127':
+                return True
+                
+            return False
+        except:
+            return False
+
     def prepare_features_for_model(self, features_list: List[Dict[str, Any]]) -> np.ndarray:
         """
         Chuẩn bị đặc trưng để sử dụng với mô hình ML.
