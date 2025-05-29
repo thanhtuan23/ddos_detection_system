@@ -67,7 +67,7 @@ class PacketCapture:
             
     def _process_packet(self, packet) -> Optional[Dict[str, Any]]:
         """
-        Xử lý gói tin riêng lẻ và cập nhật thống kê luồng, bao gồm nhận diện MSSQL traffic.
+        Xử lý gói tin riêng lẻ và cập nhật thống kê luồng.
         """
         try:
             if 'ip' in packet:
@@ -95,7 +95,10 @@ class PacketCapture:
                             'ack_count': 0,
                             'urg_count': 0,
                             'packet_sizes': [],
-                            'is_mssql_traffic': is_mssql_traffic
+                            'is_mssql_traffic': is_mssql_traffic,
+                            'Source Port': src_port,
+                            'Destination Port': dst_port,
+                            'Packet Times': []
                         }
 
                     stats = self.flow_stats[flow_key]
@@ -135,7 +138,10 @@ class PacketCapture:
                             'start_time': time.time(),
                             'packet_count': 0,
                             'byte_count': 0,
-                            'packet_sizes': []
+                            'packet_sizes': [],
+                            'Source Port': src_port,
+                            'Destination Port': dst_port,
+                            'Packet Times': []
                         }
 
                     stats = self.flow_stats[flow_key]
@@ -164,12 +170,16 @@ class PacketCapture:
             Dict chứa các đặc trưng luồng cho mô hình ML
         """
         stats = self.flow_stats[flow_key]
+        parts = flow_key.split('-')
         current_time = time.time()
+        src_dst = parts[0].split(':')
         duration = current_time - stats['start_time']
         
         features = {
             'Flow Key': flow_key,
-            'Protocol': flow_key.split('-')[-1],
+            'Source IP': src_dst[0],
+            'Destination IP': src_dst[1],
+            'Protocol': parts[-1],
             'Flow Duration': duration,
             'Total Packets': stats['packet_count'],
             'Total Bytes': stats['byte_count'],
@@ -178,7 +188,10 @@ class PacketCapture:
             'Packet Length Mean': sum(stats['packet_sizes']) / len(stats['packet_sizes']) if stats['packet_sizes'] else 0,
             'Packet Length Std': self._calculate_std(stats['packet_sizes']),
             'Packet Length Min': min(stats['packet_sizes']) if stats['packet_sizes'] else 0,
-            'Packet Length Max': max(stats['packet_sizes']) if stats['packet_sizes'] else 0
+            'Packet Length Max': max(stats['packet_sizes']) if stats['packet_sizes'] else 0,
+            'Source Port': stats.get('Source Port', 0),
+            'Destination Port': stats.get('Destination Port', 0),
+            'Packet Times': stats.get('Packet Times', [])
         }
         
         # Thêm các đặc trưng đặc biệt cho TCP

@@ -20,7 +20,7 @@ class FeatureExtractor:
             'ICMP': 2,
             'Unknown': 3
         }
-    
+
     def extract_features(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Trích xuất đặc trưng từ dữ liệu luồng thô.
@@ -36,6 +36,10 @@ class FeatureExtractor:
         # Xử lý Protocol
         protocol = flow_data.get('Protocol', 'Unknown')
         features['Protocol'] = self.protocol_mappings.get(protocol, 3)
+        
+        # Lấy cổng đích và nguồn
+        dst_port = flow_data.get('Destination Port', 0)
+        src_port = flow_data.get('Source Port', 0)
         
         # Các đặc trưng cơ bản
         features['Flow Duration'] = flow_data.get('Flow Duration', 0)
@@ -80,23 +84,63 @@ class FeatureExtractor:
             features['SYN Flood Indicator'] = 1 if features['SYN Flag Rate'] > 0.8 and features['ACK Flag Rate'] < 0.2 else 0
         else:
             features['SYN Flood Indicator'] = 0
-            
-        # Thêm đặc trưng nhận biết UDP Flood
+        
+        # Đặc trưng nhận dạng MSSQL (thường sử dụng cổng 1433)
+        features['MSSQL Port Indicator'] = 1 if (dst_port == 1433 or src_port == 1433) else 0
+        
+        # Phân tích UDP để phân biệt tấn công với streaming
         if protocol == 'UDP':
-            # fChỉ coi là UDP Flood nếu tốc độ gói rất cao
-            features['UDP Flood Indicator'] = 1 if features['Packet Rate'] > 1000 else 0
-                
-            # Thêm đặc điểm YouTube - kích thước gói lớn nhưng ổn định
             packet_sizes = flow_data.get('packet_sizes', [])
-            if packet_sizes:
+            
+            # Nhận diện YouTube và các dịch vụ streaming
+            is_common_video_port = (dst_port == 443) or (src_port == 443)  # QUIC (YouTube)
+            is_netflix_port = (dst_port in [443, 33000, 33001]) or (src_port in [443, 33000, 33001])
+            is_streaming_port = is_common_video_port or is_netflix_port
+            
+            features['Streaming Service Port'] = 1 if is_streaming_port else 0
+            
+            if packet_sizes and len(packet_sizes) > 5:
                 packet_size_std = np.std(packet_sizes)
-                # YouTube thường có kích thước gói khá ổn định
-                if packet_size_std < 200 and features['Packet Length Mean'] > 1000:
-                    features['Likely Streaming'] = 1
-                else:
-                    features['Likely Streaming'] = 0
+                packet_size_mean = np.mean(packet_sizes)
+                
+                # Tính toán tỷ lệ gói tin nhỏ (< 200 bytes) so với tổng số gói tin
+                small_packets = [size for size in packet_sizes if size < 200]
+                small_packets_ratio = len(small_packets) / len(packet_sizes) if packet_sizes else 0
+                
+                # Đánh dấu mẫu lưu lượng video streaming
+                is_streaming_pattern = (
+                    packet_size_mean > 800 and  # Gói tin lớn
+                    small_packets_ratio < 0.4 and  # Ít gói nhỏ
+                    features['Packet Rate'] < 2000  # Tốc độ không quá cao
+                )
+                
+                # Đánh dấu mẫu lưu lượng tấn công
+                is_attack_pattern = (
+                    packet_size_std < 100 and  # Kích thước đồng nhất
+                    features['Packet Rate'] > 2000 and  # Tốc độ rất cao
+                    small_packets_ratio > 0.7  # Chủ yếu là gói tin nhỏ
+                )
+                
+                # Lưu các đặc trưng để phân biệt
+                features['Likely Streaming'] = 1 if is_streaming_pattern else 0
+                features['UDP Flood Indicator'] = 1 if is_attack_pattern else 0
+                
+                # Đặc trưng nâng cao: tỷ lệ kích thước gói lớn/nhỏ
+                features['Size Uniformity'] = packet_size_std / packet_size_mean if packet_size_mean > 0 else 0
+                features['Small Packet Ratio'] = small_packets_ratio
             else:
-                features['Likely Streaming'] = 0
+                # Không đủ dữ liệu để phân tích mẫu
+                features['Likely Streaming'] = 0 if features['Packet Rate'] > 2000 else 1
+                features['UDP Flood Indicator'] = 0
+                features['Size Uniformity'] = 0
+                features['Small Packet Ratio'] = 0
+        else:
+            features['Likely Streaming'] = 0
+            features['UDP Flood Indicator'] = 0
+            features['Size Uniformity'] = 0 
+            features['Small Packet Ratio'] = 0
+            features['Streaming Service Port'] = 0
+            
         return features
     
     def prepare_features_for_model(self, features_list: List[Dict[str, Any]]) -> np.ndarray:

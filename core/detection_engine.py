@@ -330,3 +330,60 @@ class DetectionEngine:
             'detection_rate': self.detection_counts['attack_flows'] / self.detection_counts['total_flows'] 
                               if self.detection_counts['total_flows'] > 0 else 0
         }
+    
+    def analyze_flow(self, flow_features: Dict[str, Any]) -> Dict[str, Any]:
+        """Phân tích luồng mạng để phát hiện tấn công DDoS."""
+        
+        # Chuẩn bị đặc trưng cho mô hình
+        features_list = [flow_features]
+        X = self.feature_extractor.prepare_features_for_model(features_list)
+        
+        # Dự đoán
+        prediction = self.model.predict(X)[0]
+        probabilities = self.model.predict_proba(X)[0]
+        
+        # Xác định loại tấn công cụ thể
+        attack_type = "Normal"
+        confidence = float(probabilities[int(prediction)])
+        
+        # Bỏ qua các cảnh báo trên luồng streaming từ YouTube và các dịch vụ video
+        is_likely_streaming = flow_features.get('Likely Streaming', 0) == 1
+        is_streaming_port = flow_features.get('Streaming Service Port', 0) == 1
+        
+        # Tạo kết quả phân tích
+        result = {
+            'flow_key': flow_features.get('Flow Key', ''),
+            'source_ip': flow_features.get('Source IP', ''),
+            'is_attack': bool(prediction),
+            'confidence': confidence,
+            'attack_type': attack_type,
+            'flow_features': flow_features,
+            'timestamp': time.time()
+        }
+        
+        # Nếu là luồng streaming có khả năng cao, đánh dấu không phải tấn công
+        if is_likely_streaming and is_streaming_port:
+            result['is_attack'] = False
+            result['attack_type'] = "Normal (Streaming)"
+            return result
+        
+        # Đánh dấu loại tấn công cụ thể
+        if result['is_attack']:
+            protocol = flow_features.get('Protocol', 3)
+            
+            # Xác định loại tấn công
+            if protocol == 0:  # TCP
+                if flow_features.get('SYN Flood Indicator', 0) == 1:
+                    attack_type = "SYN Flood"
+                # Thêm các loại tấn công TCP khác...
+            elif protocol == 1:  # UDP
+                if flow_features.get('UDP Flood Indicator', 0) == 1:
+                    attack_type = "UDP Flood"
+            
+            # Xác định MSSQL Attack (dựa trên cổng)
+            if flow_features.get('MSSQL Port Indicator', 0) == 1:
+                attack_type = "MSSQL Attack"
+            
+            result['attack_type'] = attack_type
+        
+        return result

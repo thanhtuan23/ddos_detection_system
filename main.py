@@ -7,7 +7,7 @@ import threading
 import logging
 import logging.config
 import configparser
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 # Cấu hình logging sớm để giảm bớt thông báo không cần thiết
 logging.config.fileConfig('config/logging.conf')
@@ -22,13 +22,15 @@ warnings.filterwarnings('ignore', message='X does not have valid feature names')
 # Thêm thư mục gốc vào sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-# Import các module
+# Import tất cả module cần thiết
+import psutil
 from core.packet_capture import PacketCapture
 from core.feature_extraction import FeatureExtractor
 from core.detection_engine import DetectionEngine
 from core.prevention_engine import PreventionEngine
 from core.notification_service import NotificationService
 from ml.model_loader import ModelLoader
+from utils.email_sender import EmailSender
 from ui.app import run_webapp, register_callbacks, on_attack_detected
 from ui.app import update_detection_stats, update_blocked_ips, update_system_info
 
@@ -59,6 +61,7 @@ class DDoSDetectionSystem:
         # Trạng thái hệ thống
         self.running = False
         self.stats_thread = None
+        self.start_time = 0
     
     def setup_components(self):
         """Thiết lập các thành phần của hệ thống."""
@@ -93,6 +96,17 @@ class DDoSDetectionSystem:
             detection_threshold = self.config.getfloat('Detection', 'detection_threshold')
             check_interval = self.config.getfloat('Detection', 'check_interval')
             batch_size = self.config.getint('Detection', 'batch_size')
+            
+            # Đọc cấu hình streaming services
+            streaming_services = self.config.get('Detection', 'streaming_services', 
+                                                fallback='youtube,netflix').split(',')
+            streaming_services = [s.strip() for s in streaming_services]
+            
+            # Đọc ngưỡng false positive
+            false_positive_threshold = self.config.getfloat('Detection', 'false_positive_threshold', 
+                                                           fallback=0.8)
+            
+            # Khởi tạo detection engine với các tham số mới
             self.detection_engine = DetectionEngine(
                 self.model, 
                 self.feature_extractor, 
@@ -100,7 +114,9 @@ class DDoSDetectionSystem:
                 self.packet_queue,
                 detection_threshold,
                 check_interval,
-                batch_size
+                batch_size,
+                streaming_services=streaming_services,
+                false_positive_threshold=false_positive_threshold
             )
             
             # Thiết lập engine ngăn chặn
@@ -125,26 +141,22 @@ class DDoSDetectionSystem:
             'start_prevention_callback': self.start_prevention,
             'stop_prevention_callback': self.stop_prevention,
             'unblock_ip_callback': self.prevention_engine.unblock_ip,
-            'block_ip_callback': self.prevention_engine.block_ip,  # Thêm callback này
+            'block_ip_callback': self.prevention_engine.block_ip,
             'update_config_callback': self.update_config
         }
         register_callbacks(callbacks)
     
-    def start_all(self):
+    def start_all(self) -> bool:
         """Khởi động tất cả các thành phần của hệ thống."""
         try:
             self.logger.info("Khởi động hệ thống phát hiện và ngăn chặn DDoS...")
             
-            # Khởi động các dịch vụ cơ bản
+            # Khởi động dịch vụ thông báo
             self.notification_service.start()
-            
-            # THAY ĐỔI: Không tự động khởi động engine phát hiện và ngăn chặn
-            # self.prevention_engine.start()
-            # self.packet_capture.start_capture()
-            # self.detection_engine.start_detection()
             
             # Khởi động thread cập nhật thống kê
             self.running = True
+            self.start_time = time.time()
             self.stats_thread = threading.Thread(target=self._update_stats_loop)
             self.stats_thread.daemon = True
             self.stats_thread.start()
@@ -157,21 +169,25 @@ class DDoSDetectionSystem:
             self.stop_all()
             return False
     
-    def stop_all(self):
+    def stop_all(self) -> bool:
         """Dừng tất cả các thành phần của hệ thống."""
         try:
             self.logger.info("Dừng hệ thống phát hiện và ngăn chặn DDoS...")
             
             # Dừng thread cập nhật thống kê
             self.running = False
-            if self.stats_thread:
+            if self.stats_thread and self.stats_thread.is_alive():
                 self.stats_thread.join(timeout=2.0)
             
             # Dừng từng thành phần theo thứ tự ngược lại
-            self.detection_engine.stop_detection()
-            self.packet_capture.stop_capture()
-            self.prevention_engine.stop()
-            self.notification_service.stop()
+            if hasattr(self, 'detection_engine'):
+                self.detection_engine.stop_detection()
+            if hasattr(self, 'packet_capture'):
+                self.packet_capture.stop_capture()
+            if hasattr(self, 'prevention_engine'):
+                self.prevention_engine.stop()
+            if hasattr(self, 'notification_service'):
+                self.notification_service.stop()
             
             self.logger.info("Hệ thống đã dừng thành công")
             return True
@@ -180,7 +196,7 @@ class DDoSDetectionSystem:
             self.logger.error(f"Lỗi khi dừng hệ thống: {e}")
             return False
     
-    def start_detection(self):
+    def start_detection(self) -> bool:
         """Khởi động thành phần phát hiện tấn công."""
         try:
             if not self.packet_capture.running:
@@ -192,7 +208,7 @@ class DDoSDetectionSystem:
             self.logger.error(f"Lỗi khi khởi động thành phần phát hiện: {e}")
             return False
     
-    def stop_detection(self):
+    def stop_detection(self) -> bool:
         """Dừng thành phần phát hiện tấn công."""
         try:
             self.detection_engine.stop_detection()
@@ -204,7 +220,7 @@ class DDoSDetectionSystem:
             self.logger.error(f"Lỗi khi dừng thành phần phát hiện: {e}")
             return False
     
-    def start_prevention(self):
+    def start_prevention(self) -> bool:
         """Khởi động thành phần ngăn chặn tấn công."""
         try:
             self.prevention_engine.start()
@@ -214,7 +230,7 @@ class DDoSDetectionSystem:
             self.logger.error(f"Lỗi khi khởi động thành phần ngăn chặn: {e}")
             return False
     
-    def stop_prevention(self):
+    def stop_prevention(self) -> bool:
         """Dừng thành phần ngăn chặn tấn công."""
         try:
             self.prevention_engine.stop()
@@ -237,152 +253,46 @@ class DDoSDetectionSystem:
         try:
             section = config_data.get('section', '').lower()
             config = config_data.get('config', {})
+            component_status = {
+                'detection': {'running': False, 'restarted': False},
+                'prevention': {'running': False, 'restarted': False},
+                'notification': {'running': False, 'restarted': False}
+            }
             
-            # Kiểm tra xem có cần khởi động lại thành phần nào không
-            need_restart_detection = False
-            need_restart_prevention = False
-            need_restart_notification = False
-            
-            # Lưu trạng thái hiện tại
-            detection_was_running = self.detection_engine.running if hasattr(self.detection_engine, 'running') else False
-            prevention_was_running = self.prevention_engine.running if hasattr(self.prevention_engine, 'running') else False
-            notification_was_running = self.notification_service.running if hasattr(self.notification_service, 'running') else False
+            # Lưu trạng thái các thành phần trước khi cập nhật
+            if hasattr(self, 'detection_engine'):
+                component_status['detection']['running'] = self.detection_engine.is_running
+            if hasattr(self, 'prevention_engine'):
+                component_status['prevention']['running'] = self.prevention_engine.is_running
+            if hasattr(self, 'notification_service'):
+                component_status['notification']['running'] = self.notification_service.is_running
             
             # Xử lý cấu hình Detection
             if section == 'detection':
-                # Tham số yêu cầu khởi động lại
-                restart_params = ['batch_size', 'model_path']
-                for param in restart_params:
-                    if param in config:
-                        need_restart_detection = True
-                        break
+                self._update_detection_config(config, component_status)
                 
-                # Dừng detection engine nếu cần khởi động lại
-                if need_restart_detection and detection_was_running:
-                    self.logger.info("Dừng engine phát hiện tạm thời để áp dụng thay đổi...")
-                    self.detection_engine.stop_detection()
-                    if self.packet_capture.running:
-                        self.packet_capture.stop_capture()
-                
-                # Cập nhật các tham số khởi động lại
-                if 'batch_size' in config:
-                    self.detection_engine.batch_size = int(config['batch_size'])
-                    
-                if 'model_path' in config:
-                    # Tải lại mô hình
-                    try:
-                        model_loader = ModelLoader(config['model_path'])
-                        self.model, feature_columns = model_loader.load_model()
-                        self.detection_engine.model = self.model
-                        # Cập nhật feature_extractor nếu cần
-                        self.feature_extractor.feature_columns = feature_columns
-                    except Exception as model_error:
-                        self.logger.error(f"Lỗi khi tải mô hình mới: {model_error}")
-                        # Vẫn tiếp tục với các cập nhật khác
-                
-                # Cập nhật các tham số không yêu cầu khởi động lại
-                if 'detection_threshold' in config:
-                    self.detection_engine.detection_threshold = float(config['detection_threshold'])
-                    
-                if 'check_interval' in config:
-                    self.detection_engine.check_interval = float(config['check_interval'])
-            
             # Xử lý cấu hình Network
             elif section == 'network':
-                network_restart_params = ['interface', 'capture_filter']
-                for param in network_restart_params:
-                    if param in config:
-                        need_restart_detection = True
-                        break
+                self._update_network_config(config, component_status)
                 
-                # Dừng detection engine nếu cần khởi động lại
-                if need_restart_detection and detection_was_running:
-                    self.logger.info("Dừng engine phát hiện tạm thời để áp dụng thay đổi giao diện mạng...")
-                    self.detection_engine.stop_detection()
-                    if self.packet_capture.running:
-                        self.packet_capture.stop_capture()
-                
-                # Cập nhật các tham số
-                if 'interface' in config:
-                    # Cần tạo lại PacketCapture với giao diện mới
-                    interface = config['interface']
-                    capture_filter = self.packet_capture.capture_filter
-                    if 'capture_filter' in config:
-                        capture_filter = config['capture_filter']
-                    
-                    # Tạo PacketCapture mới
-                    self.packet_queue = queue.Queue()  # Tạo queue mới
-                    self.packet_capture = PacketCapture(interface, self.packet_queue, capture_filter)
-                    
-                    # Cập nhật queue trong detection_engine
-                    self.detection_engine.packet_queue = self.packet_queue
-            
             # Xử lý cấu hình Prevention
             elif section == 'prevention':
-                # Tham số yêu cầu khởi động lại
-                if 'enable_auto_block' in config:
-                    need_restart_prevention = True
+                self._update_prevention_config(config, component_status)
                 
-                # Dừng prevention engine nếu cần
-                if need_restart_prevention and prevention_was_running:
-                    self.logger.info("Dừng engine ngăn chặn tạm thời để áp dụng thay đổi...")
-                    self.prevention_engine.stop()
-                
-                # Cập nhật các tham số không yêu cầu khởi động lại
-                if 'block_duration' in config:
-                    self.prevention_engine.block_duration = int(config['block_duration'])
-                    
-                if 'whitelist' in config and isinstance(config['whitelist'], list):
-                    self.prevention_engine.whitelist = set(config['whitelist'])
-            
             # Xử lý cấu hình Notification
             elif section == 'notification':
-                # Tham số yêu cầu khởi động lại
-                if 'enable_notifications' in config:
-                    need_restart_notification = True
-                
-                # Dừng notification service nếu cần
-                if need_restart_notification and notification_was_running:
-                    self.logger.info("Dừng dịch vụ thông báo tạm thời để áp dụng thay đổi...")
-                    self.notification_service.stop()
-                
-                # Cập nhật cấu hình email
-                if all(k in config for k in ['smtp_server', 'smtp_port', 'sender_email']):
-                    # Tạo cấu hình email mới
-                    email_config = {
-                        'smtp_server': config['smtp_server'],
-                        'smtp_port': int(config['smtp_port']),
-                        'sender_email': config['sender_email'],
-                        'password': config.get('password', self.notification_service.email_sender.password),
-                        'recipients': config.get('recipients', self.notification_service.email_sender.recipients)
-                    }
-                    
-                    # Cập nhật email_sender
-                    from utils.email_sender import EmailSender
-                    self.notification_service.email_sender = EmailSender(**email_config)
-                
-                # Cập nhật thời gian cooldown
-                if 'cooldown_period' in config:
-                    self.notification_service.cooldown_period = int(config['cooldown_period'])
-                    
-                # Cập nhật danh sách người nhận
-                if 'recipients' in config and isinstance(config['recipients'], list):
-                    self.notification_service.email_sender.recipients = config['recipients']
+                self._update_notification_config(config, component_status)
             
             # Khởi động lại các thành phần nếu cần
-            if need_restart_detection and detection_was_running:
+            if component_status['detection']['restarted'] and component_status['detection']['running']:
                 self.logger.info("Khởi động lại engine phát hiện với cấu hình mới...")
-                # Khởi động lại packet capture nếu cần
-                if not self.packet_capture.running:
-                    self.packet_capture.start_capture()
-                # Khởi động lại detection engine
-                self.detection_engine.start_detection()
+                self.start_detection()
             
-            if need_restart_prevention and prevention_was_running:
+            if component_status['prevention']['restarted'] and component_status['prevention']['running']:
                 self.logger.info("Khởi động lại engine ngăn chặn với cấu hình mới...")
-                self.prevention_engine.start()
+                self.start_prevention()
             
-            if need_restart_notification and notification_was_running:
+            if component_status['notification']['restarted'] and component_status['notification']['running']:
                 self.logger.info("Khởi động lại dịch vụ thông báo với cấu hình mới...")
                 self.notification_service.start()
             
@@ -396,6 +306,149 @@ class DDoSDetectionSystem:
         except Exception as e:
             self.logger.error(f"Lỗi khi cập nhật cấu hình: {e}")
             return False
+    
+    def _update_detection_config(self, config: Dict[str, Any], component_status: Dict[str, Dict[str, bool]]):
+        """Cập nhật cấu hình detection engine."""
+        need_restart = False
+        
+        # Tham số yêu cầu khởi động lại
+        restart_params = ['batch_size', 'model_path']
+        for param in restart_params:
+            if param in config:
+                need_restart = True
+                break
+        
+        # Dừng detection engine nếu cần khởi động lại
+        if need_restart and component_status['detection']['running']:
+            self.logger.info("Dừng engine phát hiện tạm thời để áp dụng thay đổi...")
+            self.detection_engine.stop_detection()
+            if self.packet_capture.running:
+                self.packet_capture.stop_capture()
+            component_status['detection']['restarted'] = True
+        
+        # Cập nhật các tham số khởi động lại
+        if 'batch_size' in config:
+            self.detection_engine.batch_size = int(config['batch_size'])
+            
+        if 'model_path' in config:
+            # Tải lại mô hình
+            try:
+                model_loader = ModelLoader(config['model_path'])
+                self.model, feature_columns = model_loader.load_model()
+                self.detection_engine.model = self.model
+                # Cập nhật feature_extractor nếu cần
+                self.feature_extractor.feature_columns = feature_columns
+            except Exception as model_error:
+                self.logger.error(f"Lỗi khi tải mô hình mới: {model_error}")
+        
+        # Cập nhật các tham số không yêu cầu khởi động lại
+        if 'detection_threshold' in config:
+            self.detection_engine.detection_threshold = float(config['detection_threshold'])
+        
+        if 'check_interval' in config:
+            self.detection_engine.check_interval = float(config['check_interval'])
+            
+        # Cập nhật cấu hình streaming services
+        if 'streaming_services' in config and isinstance(config['streaming_services'], list):
+            self.detection_engine.streaming_services = config['streaming_services']
+            self.logger.info(f"Đã cập nhật danh sách streaming services: {config['streaming_services']}")
+        
+        # Cập nhật ngưỡng false positive
+        if 'false_positive_threshold' in config:
+            self.detection_engine.false_positive_threshold = float(config['false_positive_threshold'])
+            self.logger.info(f"Đã cập nhật ngưỡng false positive: {config['false_positive_threshold']}")
+    
+    def _update_network_config(self, config: Dict[str, Any], component_status: Dict[str, Dict[str, bool]]):
+        """Cập nhật cấu hình network."""
+        need_restart = False
+        
+        # Tham số yêu cầu khởi động lại
+        network_restart_params = ['interface', 'capture_filter']
+        for param in network_restart_params:
+            if param in config:
+                need_restart = True
+                break
+        
+        # Dừng detection engine nếu cần khởi động lại
+        if need_restart and component_status['detection']['running']:
+            self.logger.info("Dừng engine phát hiện tạm thời để áp dụng thay đổi giao diện mạng...")
+            self.detection_engine.stop_detection()
+            if self.packet_capture.running:
+                self.packet_capture.stop_capture()
+            component_status['detection']['restarted'] = True
+        
+        # Cập nhật cấu hình network
+        if 'interface' in config or 'capture_filter' in config:
+            # Cập nhật giao diện mạng
+            interface = config.get('interface', self.packet_capture.interface)
+            capture_filter = config.get('capture_filter', self.packet_capture.capture_filter)
+            
+            # Tạo lại packet capture nếu cần
+            if self.packet_capture.interface != interface or self.packet_capture.capture_filter != capture_filter:
+                self.packet_capture = PacketCapture(interface, self.packet_queue, capture_filter)
+                self.logger.info(f"Đã cập nhật cấu hình mạng: interface={interface}, filter={capture_filter}")
+    
+    def _update_prevention_config(self, config: Dict[str, Any], component_status: Dict[str, Dict[str, bool]]):
+        """Cập nhật cấu hình prevention engine."""
+        need_restart = False
+        
+        # Tham số yêu cầu khởi động lại
+        if 'enable_auto_block' in config:
+            need_restart = True
+        
+        # Dừng prevention engine nếu cần
+        if need_restart and component_status['prevention']['running']:
+            self.logger.info("Dừng engine ngăn chặn tạm thời để áp dụng thay đổi...")
+            self.prevention_engine.stop()
+            component_status['prevention']['restarted'] = True
+        
+        # Cập nhật cấu hình prevention
+        if 'whitelist' in config and isinstance(config['whitelist'], list):
+            self.prevention_engine.whitelist = set(config['whitelist'])
+            self.logger.info(f"Đã cập nhật whitelist: {len(config['whitelist'])} IPs")
+        
+        if 'block_duration' in config:
+            self.prevention_engine.block_duration = int(config['block_duration'])
+            self.logger.info(f"Đã cập nhật thời gian chặn: {config['block_duration']} giây")
+    
+    def _update_notification_config(self, config: Dict[str, Any], component_status: Dict[str, Dict[str, bool]]):
+        """Cập nhật cấu hình notification service."""
+        need_restart = False
+        
+        # Tham số yêu cầu khởi động lại
+        if 'enable_notifications' in config:
+            need_restart = True
+        
+        # Dừng notification service nếu cần
+        if need_restart and component_status['notification']['running']:
+            self.logger.info("Dừng dịch vụ thông báo tạm thời để áp dụng thay đổi...")
+            self.notification_service.stop()
+            component_status['notification']['restarted'] = True
+        
+        # Cập nhật cấu hình email
+        if all(k in config for k in ['smtp_server', 'smtp_port', 'sender_email']):
+            # Tạo cấu hình email mới
+            email_config = {
+                'smtp_server': config['smtp_server'],
+                'smtp_port': int(config['smtp_port']),
+                'sender_email': config['sender_email'],
+                'password': config.get('password', self.notification_service.email_sender.password),
+                'recipients': config.get('recipients', self.notification_service.email_sender.recipients)
+            }
+            
+            # Cập nhật email_sender
+            self.notification_service.email_sender = EmailSender(**email_config)
+            self.logger.info("Đã cập nhật cấu hình email")
+        
+        # Cập nhật thời gian cooldown
+        if 'cooldown_period' in config:
+            self.notification_service.cooldown_period = int(config['cooldown_period'])
+            self.logger.info(f"Đã cập nhật thời gian cooldown: {config['cooldown_period']} giây")
+            
+        # Cập nhật danh sách người nhận
+        if 'recipients' in config and isinstance(config['recipients'], list):
+            self.notification_service.email_sender.recipients = config['recipients']
+            self.logger.info(f"Đã cập nhật danh sách người nhận: {len(config['recipients'])} địa chỉ")
 
     def _save_config_to_file(self, section: str, config: Dict[str, Any]):
         """Lưu cấu hình vào file config.ini."""
@@ -432,6 +485,8 @@ class DDoSDetectionSystem:
             with open(config_path, 'w') as f:
                 config_parser.write(f)
                 
+            self.logger.info(f"Đã lưu cấu hình vào file {config_path}")
+                
         except Exception as e:
             self.logger.error(f"Lỗi khi lưu cấu hình vào file: {e}")
     
@@ -463,82 +518,19 @@ class DDoSDetectionSystem:
         Returns:
             Dict chứa thông tin hệ thống
         """
-        import psutil
-        
         return {
             'cpu_percent': psutil.cpu_percent(),
             'memory_percent': psutil.virtual_memory().percent,
             'packet_queue_size': self.packet_queue.qsize(),
-            'uptime': time.time() - self.start_time if hasattr(self, 'start_time') else 0
+            'uptime': time.time() - self.start_time if self.start_time > 0 else 0
         }
-    def update_config(self, config_data: Dict[str, Any]) -> bool:
-        """
-        Cập nhật cấu hình hệ thống.
-        
-        Args:
-            config_data: Dict chứa section và cấu hình mới
-            
-        Returns:
-            True nếu cập nhật thành công, False nếu không
-        """
-        try:
-            section = config_data.get('section', '').lower()
-            config = config_data.get('config', {})
-            
-            if section == 'detection':
-                # Cập nhật cấu hình phát hiện
-                if 'detection_threshold' in config:
-                    self.detection_engine.detection_threshold = float(config['detection_threshold'])
-                    
-                if 'batch_size' in config:
-                    # batch_size chỉ có thể thay đổi khi khởi động lại engine
-                    self.logger.info(f"Cập nhật batch_size thành {config['batch_size']}. Sẽ có hiệu lực sau khi khởi động lại.")
-                    
-                if 'check_interval' in config:
-                    self.detection_engine.check_interval = float(config['check_interval'])
-                    
-            elif section == 'prevention':
-                # Cập nhật cấu hình ngăn chặn
-                if 'block_duration' in config:
-                    self.prevention_engine.block_duration = int(config['block_duration'])
-                    
-                if 'whitelist' in config and isinstance(config['whitelist'], list):
-                    self.prevention_engine.whitelist = set(config['whitelist'])
-                    
-                # Thêm xử lý enable_auto_block nếu cần
-                    
-            elif section == 'notification':
-                # Cập nhật cấu hình thông báo
-                if 'recipients' in config and isinstance(config['recipients'], list):
-                    self.notification_service.email_sender.recipients = config['recipients']
-                    
-                if 'cooldown_period' in config:
-                    self.notification_service.cooldown_period = int(config['cooldown_period'])
-                    
-                # Cập nhật các cấu hình email khác nếu cần
-                if all(k in config for k in ['smtp_server', 'smtp_port', 'sender_email', 'password']):
-                    # Tạo email sender mới với cấu hình mới
-                    from utils.email_sender import EmailSender
-                    self.notification_service.email_sender = EmailSender(
-                        smtp_server=config['smtp_server'],
-                        smtp_port=int(config['smtp_port']),
-                        sender_email=config['sender_email'],
-                        password=config['password'],
-                        recipients=config['recipients']
-                    )
-            
-            self.logger.info(f"Đã cập nhật cấu hình {section}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Lỗi khi cập nhật cấu hình: {e}")
-            return False
-        
+    
     def run(self):
         """Khởi động hệ thống và chạy WebUI."""
         try:
-            # Lưu thời gian bắt đầu
-            self.start_time = time.time()
+            # Hiển thị cấu hình streaming services
+            streaming_services = self.config.get('Detection', 'streaming_services', fallback='youtube,netflix')
+            self.logger.info(f"Hỗ trợ nhận diện tự động các dịch vụ streaming: {streaming_services}")
             
             # Khởi động hệ thống
             if not self.start_all():
