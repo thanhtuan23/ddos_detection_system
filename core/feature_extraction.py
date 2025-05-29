@@ -88,9 +88,51 @@ class FeatureExtractor:
         else:
             features['SYN Flood Indicator'] = 0
         
-        # Đặc trưng nhận dạng MSSQL (thường sử dụng cổng 1433)
-        features['MSSQL Port Indicator'] = 1 if (dst_port == 1433 or src_port == 1433) else 0
+        # Cải thiện đặc trưng nhận dạng MSSQL 
+        is_mssql_port = (dst_port == 1433 or src_port == 1433)
+        # MSSQL thường có kích thước gói nhỏ, đồng nhất và số lượng nhiều
+        is_mssql_pattern = False
+
+        # Kiểm tra MSSQL thực sự bằng phương thức mới
+        is_real_mssql = self._is_real_mssql_traffic(flow_data)
         
+        if is_real_mssql:
+            # Đây là MSSQL thật - có thể là lưu lượng bình thường
+            features['MSSQL Port Indicator'] = 1
+        elif is_mssql_port:
+            # Sử dụng cổng MSSQL nhưng không có đặc điểm MSSQL -> có thể là tấn công
+            features['MSSQL Port Indicator'] = 1
+            features['MSSQL Attack Probability'] = 0.7  # Thêm đặc trưng xác suất tấn công
+        else:
+            # Kiểm tra các đặc điểm khác để xác định MSSQL
+            packet_sizes = flow_data.get('packet_sizes', [])
+            if packet_sizes and len(packet_sizes) > 10:
+                packet_size_mean = np.mean(packet_sizes)
+                packet_size_std = np.std(packet_sizes)
+                
+                # MSSQL amplification attack pattern
+                is_mssql_pattern = (
+                    packet_size_mean < 300 and  # Gói nhỏ
+                    packet_size_std < 50 and    # Kích thước đồng nhất
+                    features['Packet Rate'] > 100  # Tốc độ cao
+                )
+            
+            features['MSSQL Port Indicator'] = 1 if is_mssql_pattern else 0
+            if is_mssql_pattern:
+                features['MSSQL Attack Probability'] = 0.9  # Cao hơn vì đây là mẫu tấn công
+    
+        # Kiểm tra nếu lưu lượng là HTTPS/TLS
+        is_https = self._is_likely_https_traffic(features)
+        features['HTTPS Traffic'] = 1 if is_https else 0
+        
+        # Giảm khả năng nhầm lẫn HTTPS với tấn công
+        if is_https:
+            # Nếu là HTTPS, giảm khả năng là MSSQL attack
+            features['MSSQL Port Indicator'] = 0
+            # Tăng khả năng là streaming
+            if features.get('Packet Length Mean', 0) > 800:
+                features['Likely Streaming'] = 1
+    
         # Phân tích UDP để phân biệt tấn công với streaming
         if protocol == 'UDP':
             packet_sizes = flow_data.get('packet_sizes', [])
@@ -225,3 +267,37 @@ class FeatureExtractor:
             return self.config.get(section, key, fallback=default_value)
         except:
             return default_value
+    
+    def _is_likely_https_traffic(self, features: Dict[str, Any]) -> bool:
+        """Kiểm tra xem luồng có khả năng là HTTPS/TLS không."""
+        # HTTPS có đặc điểm: gói tin lớn, ACK Flag cao, cổng 443
+        dst_port = features.get('Destination Port', 0)
+        src_port = features.get('Source Port', 0)
+        
+        if dst_port == 443 or src_port == 443:
+            packet_length_mean = features.get('Packet Length Mean', 0)
+            packet_length_std = features.get('Packet Length Std', 0)
+            ack_flag_rate = features.get('ACK Flag Rate', 0)
+            
+            # HTTPS/TLS có gói tin lớn, tỷ lệ ACK cao, và kích thước gói biến đổi
+            if packet_length_mean > 600 and ack_flag_rate > 0.4 and packet_length_std > 200:
+                return True
+        
+        return False
+    
+    def _is_real_mssql_traffic(self, flow_data: Dict[str, Any]) -> bool:
+        """Kiểm tra xem đây có phải là lưu lượng MSSQL thực hay không."""
+        # Kiểm tra cổng
+        dst_port = flow_data.get('Destination Port', 0)
+        src_port = flow_data.get('Source Port', 0)
+        is_mssql_port = (dst_port == 1433 or src_port == 1433)
+        
+        # Kiểm tra payload nếu có (chỉ áp dụng khi bắt gói tin với payload)
+        has_tds_header = False
+        payload = flow_data.get('payload_hex', '')
+        if payload and len(payload) > 8:
+            # TDS header có mẫu nhận dạng đặc trưng
+            tds_markers = ['02010000', '04010000', '0701000']
+            has_tds_header = any(marker in payload[:16] for marker in tds_markers)
+        
+        return is_mssql_port and has_tds_header

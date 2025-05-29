@@ -383,9 +383,45 @@ class DetectionEngine:
                     attack_type = "UDP Flood"
                 
             # Phát hiện MSSQL Attack nếu có đặc trưng liên quan
-            if flow_features.get('MSSQL Port Indicator', 0) == 1:
-                attack_type = "MSSQL Attack"
+            mssql_port = flow_features.get('MSSQL Port Indicator', 0) == 1
+            dst_port = flow_features.get('Destination Port', 0)
+            src_port = flow_features.get('Source Port', 0)
+            ssl_pattern = (dst_port == 443 or src_port == 443) and protocol == 'TCP'
+            high_packet_rate = flow_features.get('Packet Rate', 0) > 1000
             
-            result['attack_type'] = attack_type
+            if mssql_port:
+                # Nếu là cổng MSSQL thực sự, có thể là tấn công
+                if high_packet_rate:
+                    attack_type = "MSSQL Attack"
+            else:
+                # Nếu không phải cổng MSSQL, cần thận trọng hơn khi phân loại
+                # Tránh nhầm lẫn với SSL/TLS
+                if ssl_pattern and flow_features.get('Packet Length Mean', 0) > 800:
+                    # Gói lớn qua SSL/TLS thường là video/streaming
+                    result['is_attack'] = False
+                    result['attack_type'] = "Normal (HTTPS Traffic)"
+        
+        result['attack_type'] = attack_type
+        
+        # Xử lý đặc biệt cho lưu lượng HTTPS
+        if flow_features.get('HTTPS Traffic', 0) == 1:
+            # Lưu lượng HTTPS đã được xác nhận thường không phải là tấn công
+            if result['is_attack'] and confidence < 0.9:
+                # Chỉ ghi đè kết quả nếu độ tin cậy không quá cao
+                result['is_attack'] = False
+                result['attack_type'] = "Normal (HTTPS Traffic)"
+                result['original_confidence'] = confidence
+                result['confidence'] = 0.2  # Giảm độ tin cậy là tấn công
+                return result
+        
+        # Xử lý MSSQL Attack
+        if result['is_attack'] and flow_features.get('MSSQL Port Indicator', 0) == 1:
+            attack_type = "MSSQL Attack"
+            
+            # Sử dụng thêm xác suất tấn công nếu có
+            if 'MSSQL Attack Probability' in flow_features:
+                # Điều chỉnh độ tin cậy dựa trên phân tích sâu hơn
+                mssql_attack_prob = flow_features['MSSQL Attack Probability']
+                result['confidence'] = (result['confidence'] + mssql_attack_prob) / 2
         
         return result
