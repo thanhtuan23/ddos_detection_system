@@ -122,7 +122,7 @@ class PacketCapture:
                         if flags & 0x20:  # URG
                             stats['urg_count'] += 1
 
-                    if stats['packet_count'] >= 10:
+                    if stats['packet_count'] >= 5:
                         flow_features = self._calculate_flow_features(flow_key)
                         if len(self.flow_stats) > 1000:
                             self._clean_old_flows()
@@ -149,7 +149,7 @@ class PacketCapture:
                     stats['byte_count'] += int(packet.length)
                     stats['packet_sizes'].append(int(packet.length))
 
-                    if stats['packet_count'] >= 10:
+                    if stats['packet_count'] >= 5:
                         flow_features = self._calculate_flow_features(flow_key)
                         if len(self.flow_stats) > 1000:
                             self._clean_old_flows()

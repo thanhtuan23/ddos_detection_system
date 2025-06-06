@@ -223,45 +223,44 @@ class DetectionEngine:
                                     f"Service: {service_name}, Legitimate: {is_legitimate_service}")
                     
                     # Chỉ xử lý các luồng không được xác định là dịch vụ hợp pháp hoặc có độ tin cậy rất cao
-                    if not is_legitimate_service or attack_prob > 0.98:
-                        if attack_prob >= attack_specific_threshold:
-                            # Ghi lại cuộc tấn công
-                            self.detection_counts['attack_flows'] += 1
-                            self._log_attack(flow_key, attack_type, attack_prob, flows[i])
+                    if not is_legitimate_service and attack_prob >= attack_specific_threshold:
+                        # Ghi lại cuộc tấn công
+                        self.detection_counts['attack_flows'] += 1
+                        self._log_attack(flow_key, attack_type, attack_prob, flows[i])
                             
-                            # Ghi log với utils.ddos_logger nếu có
-                            try:
-                                from utils.ddos_logger import log_attack
-                                log_attack({
-                                    'flow_key': flow_key,
-                                    'attack_type': attack_type,
-                                    'confidence': attack_prob,
-                                    'timestamp': time.time(),
-                                    'details': flows[i]
-                                })
-                            except ImportError:
-                                pass  # Bỏ qua nếu không có module ddos_logger
+                        # Ghi log với utils.ddos_logger nếu có
+                        try:
+                            from utils.ddos_logger import log_attack
+                            log_attack({
+                                'flow_key': flow_key,
+                                'attack_type': attack_type,
+                                'confidence': attack_prob,
+                                'timestamp': time.time(),
+                                'details': flows[i]
+                            })
+                        except ImportError:
+                            pass  # Bỏ qua nếu không có module ddos_logger
                             
-                            # Kiểm tra xem đã thông báo về cuộc tấn công này gần đây chưa
-                            current_time = time.time()
-                            if (flow_key not in self.attack_log or 
-                                current_time - self.attack_log[flow_key]['last_notification'] > 60):
-                                # Cập nhật thời gian thông báo cuối cùng
-                                self.attack_log[flow_key]['last_notification'] = current_time
+                        # Kiểm tra xem đã thông báo về cuộc tấn công này gần đây chưa
+                        current_time = time.time()
+                        if (flow_key not in self.attack_log or 
+                            current_time - self.attack_log[flow_key]['last_notification'] > 60):
+                            # Cập nhật thời gian thông báo cuối cùng
+                            self.attack_log[flow_key]['last_notification'] = current_time
                                 
-                                # Thêm thông tin về dịch vụ và ngưỡng được áp dụng
-                                notification_data = {
-                                    'flow_key': flow_key,
-                                    'attack_type': attack_type,
-                                    'confidence': attack_prob,
-                                    'timestamp': current_time,
-                                    'details': flows[i],
-                                    'threshold_applied': attack_specific_threshold,
-                                    'service_detected': service_name if is_legitimate_service else "None"
-                                }
+                            # Thêm thông tin về dịch vụ và ngưỡng được áp dụng
+                            notification_data = {
+                                'flow_key': flow_key,
+                                'attack_type': attack_type,
+                                'confidence': attack_prob,
+                                'timestamp': current_time,
+                                'details': flows[i],
+                                'threshold_applied': attack_specific_threshold,
+                                'service_detected': service_name if is_legitimate_service else "None"
+                            }
                                 
-                                # Gửi thông báo
-                                self.notification_callback(notification_data)
+                            # Gửi thông báo
+                            self.notification_callback(notification_data)
         
         except Exception as e:
             self.logger.error(f"Lỗi khi dự đoán: {e}")

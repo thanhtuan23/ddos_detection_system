@@ -6,10 +6,14 @@ echo "Cài đặt hệ thống phát hiện và ngăn chặn DDoS..."
 # Tạo môi trường Python ảo
 echo "Tạo môi trường Python ảo..."
 python3 -m venv venv
+# python3.12
+python3.12 -m venv venv
 source venv/bin/activate
 
 # Cài đặt các gói phụ thuộc
 echo "Cài đặt các gói phụ thuộc..."
+python -m ensurepip --upgrade
+pip install --upgrade pip
 pip install -r requirements.txt
 
 # Kiểm tra quyền root cho iptables
