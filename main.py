@@ -69,7 +69,7 @@ class DDoSDetectionSystem:
             # Tải mô hình
             model_path = self.config.get('Detection', 'model_path')
             model_loader = ModelLoader(model_path)
-            self.model, feature_columns = model_loader.load_model()
+            self.model, feature_columns, scaler, label_encoder = model_loader.load_model()
             
             # Thiết lập các thành phần
             interface = self.config.get('Network', 'interface')
