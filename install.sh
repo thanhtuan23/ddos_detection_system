@@ -7,7 +7,7 @@ echo "Cài đặt hệ thống phát hiện và ngăn chặn DDoS..."
 echo "Tạo môi trường Python ảo..."
 python3 -m venv venv
 # python3.12
-python3.12 -m venv venv
+# python3.12 -m venv venv
 source venv/bin/activate
 
 # Cài đặt các gói phụ thuộc

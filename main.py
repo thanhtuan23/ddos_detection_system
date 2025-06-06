@@ -142,17 +142,17 @@ class DDoSDetectionSystem:
             raise
     
     def _register_ui_callbacks(self):
-        """Đăng ký các callbacks cho WebUI."""
         callbacks = {
             'start_detection_callback': self.start_detection,
             'stop_detection_callback': self.stop_detection,
             'start_prevention_callback': self.start_prevention,
             'stop_prevention_callback': self.stop_prevention,
-            'unblock_ip_callback': self.prevention_engine.unblock_ip,
-            'block_ip_callback': self.prevention_engine.block_ip,
-            'update_config_callback': self.update_config
+            'unblock_ip_callback': self.unblock_ip,
+            'block_ip_callback': self.block_ip,
+            'update_config_callback': self.update_config_ui,  # Sử dụng hàm đã tối ưu
         }
         register_callbacks(callbacks)
+
     
     def start_all(self) -> bool:
         """Khởi động tất cả các thành phần của hệ thống."""
@@ -533,6 +533,32 @@ class DDoSDetectionSystem:
             'uptime': time.time() - self.start_time if self.start_time > 0 else 0
         }
     
+    def block_ip(self, ip, attack_info=None):
+        if self.prevention_engine:
+            result = self.prevention_engine.block_ip(ip, attack_info or {"attack_type": "Manual"})
+            update_blocked_ips(self.prevention_engine.get_blocked_ips())
+            return result
+        return False
+
+    def unblock_ip(self, ip):
+        if self.prevention_engine:
+            result = self.prevention_engine.unblock_ip(ip)
+            update_blocked_ips(self.prevention_engine.get_blocked_ips())
+            return result
+        return False
+
+    # Đừng overwrite hàm update_config gốc! Thay vào đó:
+    def update_config_ui(self, config_data: Dict[str, Any]) -> bool:
+        # Gọi update_config thực sự
+        result = self.update_config(config_data)
+        # Sau đó update lại UI
+        update_blocked_ips(self.prevention_engine.get_blocked_ips())
+        update_detection_stats(self.detection_engine.get_detection_stats())
+        update_system_info(self._get_system_info())
+        return result
+
+
+
     def run(self):
         """Khởi động hệ thống và chạy WebUI."""
         try:
