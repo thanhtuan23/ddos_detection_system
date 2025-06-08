@@ -8,7 +8,7 @@ class PacketCapture:
     """Thu thập gói tin và phân tích luồng mạng thời gian thực."""
 
     def __init__(self, interface: str, packet_queue: queue.Queue,
-                 capture_filter: Optional[str] = None, buffer_size: int = 1000, max_packets_per_flow: int = 8):
+                 capture_filter: Optional[str] = None, buffer_size: int = 1000, max_packets_per_flow: int = 3):
         """
         Args:
             interface: Giao diện mạng để bắt gói tin
@@ -105,7 +105,7 @@ class PacketCapture:
             else:
                 src_port = dst_port = 0
 
-            flow_key = f"{src_ip}:{src_port}-{dst_ip}:{dst_port}"
+            flow_key = f"{src_ip}-{dst_ip}:{dst_port}"
 
             with self.lock:
                 flow = self.flow_dict.setdefault(flow_key, {
@@ -148,6 +148,9 @@ class PacketCapture:
                     )
                     flow_summary["Total Packets"] = len(flow["Packet Lengths"])
                     del self.flow_dict[flow_key]
+                    
+                    print(f"[DEBUG] PUSH FLOW: {flow_key}, packets: {len(flow['Packet Lengths'])}")
+
                     return flow_summary
             
             print(f"Captured packet: proto={proto}, src={src_ip}, dst={dst_ip}, len={length}")
