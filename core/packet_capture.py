@@ -8,7 +8,7 @@ class PacketCapture:
     """Thu thập gói tin và phân tích luồng mạng thời gian thực."""
 
     def __init__(self, interface: str, packet_queue: queue.Queue,
-                 capture_filter: Optional[str] = None, buffer_size: int = 1000, max_packets_per_flow: int = 3):
+                 capture_filter: Optional[str] = None, buffer_size: int = 1000, max_packets_per_flow: int = 20):
         """
         Args:
             interface: Giao diện mạng để bắt gói tin
@@ -81,6 +81,7 @@ class PacketCapture:
             return 0
 
         try:
+            # Ưu tiên bắt đúng thứ tự giao thức!
             if hasattr(pkt, 'udp'):
                 proto = 'UDP'
             elif hasattr(pkt, 'tcp'):
@@ -105,6 +106,7 @@ class PacketCapture:
             else:
                 src_port = dst_port = 0
 
+            # Tạo key cho flow
             flow_key = f"{src_ip}-{dst_ip}:{dst_port}"
 
             with self.lock:
@@ -146,19 +148,24 @@ class PacketCapture:
                         flow["Packet Times"][-1] - flow["Packet Times"][0]
                         if len(flow["Packet Times"]) > 1 else 0
                     )
+                    flow_summary["Total Bytes"] = sum(flow["Packet Lengths"])
                     flow_summary["Total Packets"] = len(flow["Packet Lengths"])
-                    del self.flow_dict[flow_key]
-                    
-                    print(f"[DEBUG] PUSH FLOW: {flow_key}, packets: {len(flow['Packet Lengths'])}")
+                    duration = flow_summary["Flow Duration"]
+                    flow_summary["Packet Rate"] = flow_summary["Total Packets"] / duration if duration > 0 else 0
+                    flow_summary["Byte Rate"] = flow_summary["Total Bytes"] / duration if duration > 0 else 0
 
+                    del self.flow_dict[flow_key]
+                    print(
+                        f"[DEBUG] PUSH FLOW: {flow_key}, packets: {flow_summary['Total Packets']}, bytes: {flow_summary['Total Bytes']}, rate: {flow_summary['Packet Rate']:.2f}, proto: {proto}"
+                    )
                     return flow_summary
-            
+
+            # Print từng packet nếu muốn debug chi tiết hơn:
             print(f"Captured packet: proto={proto}, src={src_ip}, dst={dst_ip}, len={length}")
 
         except Exception as e:
             print(f"[Capture] Lỗi khi process_packet: {e}")
         return None
-
 
     def _clean_old_flows(self, timeout=60):
         """Xóa các flow chưa đủ packet nhưng đã quá cũ để giải phóng bộ nhớ."""
@@ -170,6 +177,7 @@ class PacketCapture:
                     to_delete.append(key)
             for key in to_delete:
                 del self.flow_dict[key]
+
     # def _calculate_flow_features(self, flow_key: str) -> Dict[str, Any]:
     #     """
     #     Tính toán các đặc trưng luồng từ các gói tin đã thu thập.
