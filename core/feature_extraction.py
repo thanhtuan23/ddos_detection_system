@@ -20,14 +20,10 @@ class FeatureExtractor:
     def extract_features(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
         features = {}
 
-        # ----------- ACK FLOOD INDICATOR (nếu muốn detect ACK flood) -----------
-        if protocol == 'TCP':
-            features['ACK Flood Indicator'] = 1 if features['ACK Flag Rate'] > 0.8 and features['SYN Flag Rate'] < 0.1 and features['FIN Flag Rate'] < 0.1 else 0
-        else:
-            features['ACK Flood Indicator'] = 0
-            
         # ----------- PROTOCOL & PORT -----------
         protocol = flow_data.get('Protocol', 'Unknown')
+        if isinstance(protocol, int):
+            protocol = {0: 'TCP', 1: 'UDP', 2: 'ICMP', 3: 'Unknown'}.get(protocol, 'Unknown')
         features['Protocol'] = self.protocol_mappings.get(protocol, 3)
         dst_port = int(flow_data.get('Destination Port', 0) or 0)
         src_port = int(flow_data.get('Source Port', 0) or 0)
@@ -58,7 +54,23 @@ class FeatureExtractor:
         total_packets = features['Total Packets']
         features['SYN Flag Rate'] = features['SYN Flag Count'] / total_packets if total_packets else 0
         features['ACK Flag Rate'] = features['ACK Flag Count'] / total_packets if total_packets else 0
+        features['FIN Flag Rate'] = features['FIN Flag Count'] / total_packets if total_packets else 0
+        features['RST Flag Rate'] = features['RST Flag Count'] / total_packets if total_packets else 0
+        features['PSH Flag Rate'] = features['PSH Flag Count'] / total_packets if total_packets else 0
+        features['URG Flag Rate'] = features['URG Flag Count'] / total_packets if total_packets else 0
+        features['SYN ACK Ratio'] = features['SYN Flag Count'] / (features['ACK Flag Count'] + 1) if features['ACK Flag Count'] > 0 else 0
+        features['ACK SYN Ratio'] = features['ACK Flag Count'] / (features['SYN Flag Count'] + 1) if features['SYN Flag Count'] > 0 else 0
+        features['SYN FIN Ratio'] = features['SYN Flag Count'] / (features['FIN Flag Count'] + 1) if features['FIN Flag Count'] > 0 else 0
+        features['ACK FIN Ratio'] = features['ACK Flag Count'] / (features['FIN Flag Count'] + 1) if features['FIN Flag Count'] > 0 else 0
+        features['SYN RST Ratio'] = features['SYN Flag Count'] / (features['RST Flag Count'] + 1) if features['RST Flag Count'] > 0 else 0
+        features['ACK RST Ratio'] = features['ACK Flag Count'] / (features['RST Flag Count'] + 1) if features['RST Flag Count'] > 0 else 0
 
+        # ----------- ACK FLOOD INDICATOR  -----------
+        if protocol == 'TCP':
+            features['ACK Flood Indicator'] = 1 if features['ACK Flag Rate'] > 0.8 and features['SYN Flag Rate'] < 0.1 and features['FIN Flag Rate'] < 0.1 else 0
+        else:
+            features['ACK Flood Indicator'] = 0
+            
         # ----------- INTER-ARRIVAL TIME (IAT) -----------
         packet_times = flow_data.get('Packet Times', [])
         if packet_times and len(packet_times) > 1:

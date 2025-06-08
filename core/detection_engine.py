@@ -174,8 +174,8 @@ class DetectionEngine:
                 attack_type = self.attack_types.get(pred, "Unknown")
                 attack_prob = probs[pred]
 
-                # Tách thông tin flow (src/dst IP/port, protocol)
-                src_ip, dst_ip, src_port, dst_port, protocol = "", "", "", "", flows[i].get('Protocol', 'Unknown')
+                # ==== Tách src/dst/port từ flow_key ====
+                src_ip, dst_ip, src_port, dst_port = "", "", "", ""
                 if flow_key and '-' in flow_key:
                     parts = flow_key.split('-')
                     if ':' in parts[0]:
@@ -183,13 +183,23 @@ class DetectionEngine:
                     if ':' in parts[1]:
                         dst_ip, dst_port = parts[1].split(':')
 
-                # ========== 1. BỘ LỌC WHITELIST + DỊCH VỤ HỢP PHÁP ==========
-                is_legit, legit_reason = self.is_legitimate_service(src_ip, dst_ip, src_port, dst_port, protocol, flows[i])
-                # Nếu là traffic hợp pháp, không bao giờ alert
+                # ==== Lấy protocol đúng kiểu string ====
+                protocol_num = flows[i].get('Protocol', 3)
+                protocol_map = {0: "TCP", 1: "UDP", 2: "ICMP", 3: "Unknown"}
+                try:
+                    protocol = protocol_map[int(protocol_num)]
+                except Exception:
+                    protocol = "Unknown"
 
+                # ========== 1. BỘ LỌC WHITELIST + DỊCH VỤ HỢP PHÁP ==========
+                is_legit, legit_reason = self.is_legitimate_service(
+                    src_ip, dst_ip, src_port, dst_port, protocol, flows[i]
+                )
                 if is_legit:
-                    self.logger.info(f"SKIP: {flow_key} ({legit_reason}) - attack_prob={attack_prob:.2f}, attack_type={attack_type}")
-                    continue  # Không bao giờ alert nếu là traffic hợp pháp!
+                    self.logger.info(
+                        f"SKIP: {flow_key} ({legit_reason}) - attack_prob={attack_prob:.2f}, attack_type={attack_type}"
+                    )
+                    continue  # Không alert nếu là traffic hợp pháp!
 
                 # ========== 2. TĂNG THRESHOLD CẢNH BÁO CHO PORT/ATTACK CỤ THỂ ==========
                 attack_specific_threshold = self.detection_threshold
