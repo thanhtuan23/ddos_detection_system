@@ -81,7 +81,14 @@ class PacketCapture:
             return 0
 
         try:
-            proto = pkt.highest_layer
+            if hasattr(pkt, 'udp'):
+                proto = 'UDP'
+            elif hasattr(pkt, 'tcp'):
+                proto = 'TCP'
+            elif hasattr(pkt, 'icmp'):
+                proto = 'ICMP'
+            else:
+                proto = 'Unknown'
             timestamp = float(pkt.sniff_time.timestamp())
             length = int(pkt.length)
 
@@ -142,6 +149,9 @@ class PacketCapture:
                     flow_summary["Total Packets"] = len(flow["Packet Lengths"])
                     del self.flow_dict[flow_key]
                     return flow_summary
+            
+            print(f"Captured packet: proto={proto}, src={src_ip}, dst={dst_ip}, len={length}")
+
         except Exception as e:
             print(f"[Capture] Lỗi khi process_packet: {e}")
         return None
