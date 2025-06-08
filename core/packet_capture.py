@@ -63,6 +63,23 @@ class PacketCapture:
 
     def _process_packet(self, pkt):
         """Gom packet thành flow, return flow khi đủ điều kiện."""
+        def safe_flag_to_int(flag):
+            # Chuyển các giá trị 'True', 'False', True, False, 1, 0 về 1/0
+            if isinstance(flag, bool):
+                return int(flag)
+            if isinstance(flag, int):
+                return flag
+            if isinstance(flag, str):
+                if flag.lower() == "true":
+                    return 1
+                if flag.lower() == "false":
+                    return 0
+                try:
+                    return int(flag)
+                except Exception:
+                    return 0
+            return 0
+
         try:
             proto = pkt.highest_layer
             timestamp = float(pkt.sniff_time.timestamp())
@@ -107,25 +124,28 @@ class PacketCapture:
 
                 if proto == "TCP" and hasattr(pkt, 'tcp'):
                     tcp = pkt.tcp
-                    # Dùng getattr vì có thể thiếu field trên gói lạ
-                    if int(getattr(tcp, "flags_syn", 0)): flow["SYN Flag Count"] += 1
-                    if int(getattr(tcp, "flags_fin", 0)): flow["FIN Flag Count"] += 1
-                    if int(getattr(tcp, "flags_rst", 0)): flow["RST Flag Count"] += 1
-                    if int(getattr(tcp, "flags_psh", 0)): flow["PSH Flag Count"] += 1
-                    if int(getattr(tcp, "flags_ack", 0)): flow["ACK Flag Count"] += 1
-                    if int(getattr(tcp, "flags_urg", 0)): flow["URG Flag Count"] += 1
+                    if safe_flag_to_int(getattr(tcp, "flags_syn", 0)): flow["SYN Flag Count"] += 1
+                    if safe_flag_to_int(getattr(tcp, "flags_fin", 0)): flow["FIN Flag Count"] += 1
+                    if safe_flag_to_int(getattr(tcp, "flags_rst", 0)): flow["RST Flag Count"] += 1
+                    if safe_flag_to_int(getattr(tcp, "flags_psh", 0)): flow["PSH Flag Count"] += 1
+                    if safe_flag_to_int(getattr(tcp, "flags_ack", 0)): flow["ACK Flag Count"] += 1
+                    if safe_flag_to_int(getattr(tcp, "flags_urg", 0)): flow["URG Flag Count"] += 1
 
                 # Khi đạt số lượng gói, push flow vào queue để detection xử lý
                 if len(flow["Packet Lengths"]) >= self.max_packets_per_flow:
                     flow_summary = dict(flow)  # Copy dữ liệu
                     flow_summary["Flow Key"] = flow_key
-                    flow_summary["Flow Duration"] = flow["Packet Times"][-1] - flow["Packet Times"][0] if len(flow["Packet Times"]) > 1 else 0
+                    flow_summary["Flow Duration"] = (
+                        flow["Packet Times"][-1] - flow["Packet Times"][0]
+                        if len(flow["Packet Times"]) > 1 else 0
+                    )
                     flow_summary["Total Packets"] = len(flow["Packet Lengths"])
                     del self.flow_dict[flow_key]
                     return flow_summary
         except Exception as e:
             print(f"[Capture] Lỗi khi process_packet: {e}")
         return None
+
 
     def _clean_old_flows(self, timeout=60):
         """Xóa các flow chưa đủ packet nhưng đã quá cũ để giải phóng bộ nhớ."""
