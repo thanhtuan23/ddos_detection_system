@@ -20,6 +20,12 @@ class FeatureExtractor:
     def extract_features(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
         features = {}
 
+        # ----------- ACK FLOOD INDICATOR (nếu muốn detect ACK flood) -----------
+        if protocol == 'TCP':
+            features['ACK Flood Indicator'] = 1 if features['ACK Flag Rate'] > 0.8 and features['SYN Flag Rate'] < 0.1 and features['FIN Flag Rate'] < 0.1 else 0
+        else:
+            features['ACK Flood Indicator'] = 0
+            
         # ----------- PROTOCOL & PORT -----------
         protocol = flow_data.get('Protocol', 'Unknown')
         features['Protocol'] = self.protocol_mappings.get(protocol, 3)

@@ -65,13 +65,36 @@ class DetectionEngine:
             self.detection_thread.join(timeout=2.0)
         print("Engine phát hiện DDoS đã dừng")
 
-    def is_legitimate_service(self, src_ip, dst_ip, src_port, dst_port, protocol):
+    def is_legitimate_service(self, src_ip, dst_ip, src_port, dst_port, protocol, flow=None):
         # Check whitelist IP/port trước tiên
         if src_ip in self.whitelist_ip or dst_ip in self.whitelist_ip:
             return True, "Whitelist IP"
         if src_port and int(src_port) in self.whitelist_port:
+            if protocol == "TCP" and flow is not None:
+                syn_rate = flow.get('SYN Flag Rate', 0)
+                ack_rate = flow.get('ACK Flag Rate', 0)
+                # Nếu là SYN Flood thì KHÔNG skip (để alert)
+                if syn_rate > 0.8 and ack_rate < 0.2:
+                    return False, ""
+                if flow.get('ACK Flood Indicator', 0) == 1:
+                    return False, ""
+            # Nếu là UDP Flood thì KHÔNG skip (để alert)
+            if protocol == "UDP" and flow is not None:
+                if flow.get('UDP Flood Indicator', 0) == 1:
+                    return False, ""
             return True, "Whitelist Port"
+
         if dst_port and int(dst_port) in self.whitelist_port:
+            if protocol == "TCP" and flow is not None:
+                syn_rate = flow.get('SYN Flag Rate', 0)
+                ack_rate = flow.get('ACK Flag Rate', 0)
+                if syn_rate > 0.8 and ack_rate < 0.2:
+                    return False, ""
+                if flow.get('ACK Flood Indicator', 0) == 1:
+                    return False, ""
+            if protocol == "UDP" and flow is not None:
+                if flow.get('UDP Flood Indicator', 0) == 1:
+                    return False, ""
             return True, "Whitelist Port"
 
         # Các pattern IP Google, Youtube, Facebook, CDN lớn
@@ -161,7 +184,9 @@ class DetectionEngine:
                         dst_ip, dst_port = parts[1].split(':')
 
                 # ========== 1. BỘ LỌC WHITELIST + DỊCH VỤ HỢP PHÁP ==========
-                is_legit, legit_reason = self.is_legitimate_service(src_ip, dst_ip, src_port, dst_port, protocol)
+                is_legit, legit_reason = self.is_legitimate_service(src_ip, dst_ip, src_port, dst_port, protocol, flows[i])
+                # Nếu là traffic hợp pháp, không bao giờ alert
+
                 if is_legit:
                     self.logger.info(f"SKIP: {flow_key} ({legit_reason}) - attack_prob={attack_prob:.2f}, attack_type={attack_type}")
                     continue  # Không bao giờ alert nếu là traffic hợp pháp!
