@@ -1,4 +1,3 @@
-# src/ddos_detection_system/ml/feature_processor.py
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Any, Tuple
@@ -9,129 +8,63 @@ class FeatureProcessor:
     """
     Xử lý và chuẩn hóa đặc trưng cho mô hình học máy.
     """
-    
-    def __init__(self, feature_columns: List[str]):
+    def __init__(self, feature_columns: List[str], scaler: MinMaxScaler = None):
         """
         Khởi tạo bộ xử lý đặc trưng.
-        
         Args:
             feature_columns: Danh sách các cột đặc trưng cần thiết cho mô hình
+            scaler: Bộ chuẩn hóa đã fit từ lúc train (nếu có)
         """
         self.feature_columns = feature_columns
-        self.scaler = MinMaxScaler()
-        self.scaler_fitted = False
+        self.scaler = scaler if scaler is not None else MinMaxScaler()
+        self.scaler_fitted = scaler is not None
         self.logger = logging.getLogger("feature_processor")
-        
-        # Đặc trưng cần có để khớp với mô hình
-        self.required_feature_count = 32
-        
-        # Log thông tin về đặc trưng mong đợi
+        self.required_feature_count = len(feature_columns)
         self.logger.info(f"Khởi tạo bộ xử lý đặc trưng với {len(feature_columns)} đặc trưng mong đợi")
-        if len(feature_columns) < 10:
-            self.logger.info(f"Danh sách đặc trưng mong đợi: {feature_columns}")
-        
+
     def fit_scaler(self, X: np.ndarray):
         """
         Đào tạo bộ chuẩn hóa MinMaxScaler với dữ liệu.
-        
         Args:
             X: Dữ liệu để đào tạo bộ chuẩn hóa
         """
         self.scaler.fit(X)
         self.scaler_fitted = True
         self.logger.info("Đã đào tạo bộ chuẩn hóa MinMaxScaler")
-        
+
     def process_features(self, features: Dict[str, Any]) -> np.ndarray:
         """
-        Xử lý một từ điển đặc trưng thành một vector đặc trưng.
-        
+        Xử lý một từ điển đặc trưng thành một vector đặc trưng cho model.
         Args:
-            features: Từ điển chứa các đặc trưng
-            
+            features: Dict chứa các đặc trưng
         Returns:
-            Vector đặc trưng đã được xử lý
+            Numpy array 1 dòng, đúng thứ tự, đúng số lượng feature_columns
         """
-        # Tạo DataFrame với một hàng từ từ điển đặc trưng
         df = pd.DataFrame([features])
-        
-        # Log các đặc trưng đầu vào
-        self.logger.debug(f"Số lượng đặc trưng đầu vào: {len(df.columns)}")
-        
-        # Xử lý sự không khớp giữa đặc trưng đầu vào và đặc trưng mô hình
         missing_features = set(self.feature_columns) - set(df.columns)
-        extra_features = set(df.columns) - set(self.feature_columns)
-        
         if missing_features:
-            self.logger.debug(f"Đặc trưng thiếu: {missing_features}")
-            # Thêm các đặc trưng thiếu với giá trị mặc định là 0
             for feature in missing_features:
                 df[feature] = 0
-        
-        if extra_features:
-            self.logger.debug(f"Đặc trưng thừa: {extra_features}")
-            # Có thể loại bỏ các đặc trưng thừa, tùy vào chiến lược của bạn
-        
-        # Xác định số lượng đặc trưng cần thêm để đạt đủ 32 đặc trưng
-        current_feature_count = len(self.feature_columns)
-        dummy_features_needed = max(0, self.required_feature_count - current_feature_count)
-        
-        # Thêm các đặc trưng giả nếu cần
-        if dummy_features_needed > 0:
-            self.logger.info(f"Thêm {dummy_features_needed} đặc trưng giả để đạt đủ {self.required_feature_count} đặc trưng")
-            dummy_feature_names = [f"dummy_feature_{i}" for i in range(dummy_features_needed)]
-            
-            # Thêm các đặc trưng giả vào DataFrame
-            for feature in dummy_feature_names:
-                df[feature] = 0
-            
-            # Thêm các đặc trưng giả vào danh sách đặc trưng
-            self.feature_columns.extend(dummy_feature_names)
-        
-        # Đảm bảo tất cả các cột cần thiết đều có mặt
-        for col in self.feature_columns:
-            if col not in df.columns:
-                df[col] = 0
-        
-        # Chỉ giữ lại các cột đặc trưng cần thiết theo thứ tự chính xác
+        # Chỉ giữ đúng cột, đúng thứ tự
         df = df[self.feature_columns]
-        
-        # Kiểm tra lại số lượng đặc trưng
-        actual_feature_count = df.shape[1]
-        if actual_feature_count != self.required_feature_count:
-            self.logger.warning(f"Cảnh báo: Vẫn không đủ đặc trưng. Cần {self.required_feature_count}, hiện có {actual_feature_count}")
-        else:
-            self.logger.debug(f"Đã chuẩn bị đủ {actual_feature_count} đặc trưng")
-        
-        # Chuyển đổi thành mảng numpy
         X = df.values
-        
-        # Chuẩn hóa đặc trưng nếu bộ chuẩn hóa đã được đào tạo
+        # Apply scaler nếu đã fit
         if self.scaler_fitted:
             try:
                 X = self.scaler.transform(X)
             except Exception as e:
                 self.logger.error(f"Lỗi khi chuẩn hóa đặc trưng: {e}")
-                # Trong trường hợp lỗi, trả về mảng không chuẩn hóa
-        
         return X
-    
+
     def process_batch(self, features_list: List[Dict[str, Any]]) -> np.ndarray:
         if not features_list:
             self.logger.warning("Danh sách đặc trưng trống")
-            return np.zeros((0, self.required_feature_count))
+            return np.zeros((0, len(self.feature_columns)))
         df = pd.DataFrame(features_list)
-        columns = list(self.feature_columns)
-        # Xử lý thiếu/ thừa
-        for col in columns:
+        for col in self.feature_columns:
             if col not in df.columns:
                 df[col] = 0
-        df = df[columns]
-        # Nếu vẫn thiếu, thêm dummy
-        if df.shape[1] < self.required_feature_count:
-            dummy_count = self.required_feature_count - df.shape[1]
-            for i in range(dummy_count):
-                df[f'dummy_feature_{i}'] = 0
-        df = df.iloc[:, :self.required_feature_count]  # Đảm bảo đúng thứ tự, đúng số lượng
+        df = df[self.feature_columns]
         X = df.values
         if self.scaler_fitted:
             try:
@@ -139,16 +72,13 @@ class FeatureProcessor:
             except Exception as e:
                 self.logger.error(f"Lỗi khi chuẩn hóa batch đặc trưng: {e}")
         return X
-    
+
     def prepare_features_for_model(self, features_list: List[Dict[str, Any]]) -> np.ndarray:
         """
         Chuẩn bị đặc trưng để sử dụng với mô hình ML.
-        
         Args:
-            features_list: Danh sách các từ điển đặc trưng đã trích xuất
-            
+            features_list: Danh sách dict đặc trưng đã trích xuất
         Returns:
-            Mảng numpy chứa đặc trưng đã được xử lý để cung cấp cho mô hình
+            Mảng numpy đã chuẩn hóa, đúng số/thứ tự feature
         """
-        # Đây là phương thức chính để chuẩn bị đặc trưng cho mô hình
         return self.process_batch(features_list)

@@ -10,23 +10,20 @@ class ModelLoader:
     """
 
     def __init__(self, model_path: str):
-        """
-        Args:
-            model_path: Đường dẫn đến tệp tin mô hình đã lưu
-        """
         self.model_path = model_path
         self.model = None
         self.feature_columns: List[str] = []
         self.scaler = None
         self.label_encoder = None
+        self.label_mapping = None
         self.logger = logging.getLogger("model_loader")
 
-    def load_model(self) -> Tuple[BaseEstimator, List[str], Optional[Any], Optional[Any]]:
+    def load_model(self) -> Tuple[BaseEstimator, List[str], Optional[Any], Optional[Any], Optional[Dict]]:
         """
         Tải mô hình ML từ tệp tin.
 
         Returns:
-            Tuple của (model, feature_columns, scaler, label_encoder)
+            Tuple của (model, feature_columns, scaler, label_encoder, label_mapping)
         """
         try:
             if not os.path.exists(self.model_path):
@@ -36,39 +33,36 @@ class ModelLoader:
             with open(self.model_path, 'rb') as f:
                 loaded_data = pickle.load(f)
 
-            # Kiểm tra mô hình có metadata không
             if isinstance(loaded_data, dict) and 'model' in loaded_data:
                 self.model = loaded_data['model']
                 self.feature_columns = loaded_data.get('features', [])
                 self.scaler = loaded_data.get('scaler')
                 self.label_encoder = loaded_data.get('label_encoder')
-
+                self.label_mapping = loaded_data.get('label_mapping', None)
                 self.logger.info(f"Đã tải mô hình có metadata từ {self.model_path}")
                 self.logger.info(f"Loại mô hình: {loaded_data.get('model_type', type(self.model).__name__)}")
                 self.logger.info(f"Số lượng đặc trưng: {loaded_data.get('n_features', len(self.feature_columns))}")
-                if 'label_mapping' in loaded_data:
-                    self.logger.info(f"Ánh xạ nhãn: {loaded_data['label_mapping']}")
+                if self.label_mapping:
+                    self.logger.info(f"Ánh xạ nhãn: {self.label_mapping}")
             else:
                 # Trường hợp model cũ
                 self.model = loaded_data
                 self._extract_feature_columns()
                 self.logger.info(f"Đã tải mô hình đơn thuần từ {self.model_path}")
 
-            # Log danh sách đặc trưng
             self.logger.info(f"Tổng số đặc trưng: {len(self.feature_columns)}")
             if len(self.feature_columns) <= 10:
                 self.logger.info(f"Danh sách đặc trưng: {self.feature_columns}")
             else:
                 self.logger.info(f"5 đặc trưng đầu tiên: {self.feature_columns[:5]}...")
 
-            # Kiểm tra n_features_in_
             if hasattr(self.model, 'n_features_in_'):
                 n_expected = self.model.n_features_in_
                 if len(self.feature_columns) != n_expected:
                     self.logger.warning(f"Cảnh báo: Số lượng đặc trưng không khớp! "
                                         f"Mô hình cần {n_expected}, nhưng đã tìm thấy {len(self.feature_columns)}")
 
-            return self.model, self.feature_columns, self.scaler, self.label_encoder
+            return self.model, self.feature_columns, self.scaler, self.label_encoder, self.label_mapping
 
         except Exception as e:
             self.logger.error(f"Lỗi khi tải mô hình: {e}")
@@ -80,7 +74,7 @@ class ModelLoader:
             self.feature_columns = list(self.model.feature_names_in_)
             self.logger.info(f"Đặc trưng từ model.feature_names_in_: {self.feature_columns}")
         else:
-            # Danh sách đặc trưng mặc định (tùy chỉnh nếu cần)
+            # Danh sách đặc trưng mặc định
             self.feature_columns = [
                 'Protocol', 'Flow Duration', 'Total Packets', 'Total Bytes',
                 'Packet Rate', 'Byte Rate', 'Packet Length Mean', 'Packet Length Std',

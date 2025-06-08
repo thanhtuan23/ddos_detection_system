@@ -15,6 +15,8 @@ class DetectionEngine:
                  check_interval: float = 1.0, batch_size: int = 10, config=None):
         self.model = model
         self.feature_extractor = feature_extractor
+        self.running = False
+        self.is_running = False
         self.notification_callback = notification_callback
         self.packet_queue = packet_queue
         self.detection_threshold = detection_threshold
@@ -23,7 +25,6 @@ class DetectionEngine:
         self.logger = logging.getLogger("DetectionEngine")
 
         self.attack_log = {}
-        self.running = False
         self.detection_thread = None
 
         self.processing_times = []
@@ -53,6 +54,7 @@ class DetectionEngine:
     def start_detection(self):
         """Bắt đầu engine phát hiện trong một thread riêng biệt."""
         self.running = True
+        self.is_running = True
         self.detection_thread = threading.Thread(target=self._detection_loop)
         self.detection_thread.daemon = True
         self.detection_thread.start()
@@ -61,6 +63,7 @@ class DetectionEngine:
     def stop_detection(self):
         """Dừng engine phát hiện."""
         self.running = False
+        self.is_running = False
         if self.detection_thread:
             self.detection_thread.join(timeout=2.0)
         print("Engine phát hiện DDoS đã dừng")
