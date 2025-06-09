@@ -9,14 +9,6 @@ class PacketCapture:
 
     def __init__(self, interface: str, packet_queue: queue.Queue,
                  capture_filter: Optional[str] = None, buffer_size: int = 1000, max_packets_per_flow: int = 20):
-        """
-        Args:
-            interface: Giao diện mạng để bắt gói tin
-            packet_queue: Queue để đẩy các flow đã thu thập
-            capture_filter: Bộ lọc BPF cho việc bắt gói tin
-            buffer_size: Kích thước queue tối đa
-            max_packets_per_flow: Số gói tối đa mỗi flow trước khi push vào queue
-        """
         self.interface = interface
         self.packet_queue = packet_queue
         self.capture_filter = capture_filter
@@ -25,24 +17,20 @@ class PacketCapture:
         self.running = False
         self.capture_thread = None
         self.lock = threading.Lock()
-        # Lưu các flow đang gom packet
         self.flow_dict: Dict[str, Dict[str, Any]] = {}
 
     def start_capture(self):
-        """Bắt đầu thu thập gói tin trong một thread riêng biệt."""
         self.running = True
         self.capture_thread = threading.Thread(target=self._capture_packets)
         self.capture_thread.daemon = True
         self.capture_thread.start()
 
     def stop_capture(self):
-        """Dừng quá trình thu thập gói tin."""
         self.running = False
         if self.capture_thread:
             self.capture_thread.join(timeout=2.0)
 
     def _capture_packets(self):
-        """Thu thập packet, gom thành flow rồi put vào queue khi đủ điều kiện."""
         try:
             capture = pyshark.LiveCapture(
                 interface=self.interface,
@@ -52,78 +40,51 @@ class PacketCapture:
                 if not self.running:
                     break
                 flow_data = self._process_packet(packet)
-                # flow_data chỉ trả về khi đã đủ số packet trong 1 flow
                 if flow_data and self.packet_queue.qsize() < self.buffer_size:
                     self.packet_queue.put(flow_data)
-                # Option: dọn flow cũ định kỳ để tránh leak
                 if time.time() % 60 < 1:
                     self._clean_old_flows()
         except Exception as e:
             print(f"Lỗi khi bắt gói tin: {e}")
 
     def _process_packet(self, pkt):
-        """Gom packet thành flow, return flow khi đủ điều kiện."""
         def safe_flag_to_int(flag):
-            # Chuyển các giá trị 'True', 'False', True, False, 1, 0 về 1/0
-            if isinstance(flag, bool):
-                return int(flag)
-            if isinstance(flag, int):
-                return flag
+            if isinstance(flag, bool): return int(flag)
+            if isinstance(flag, int): return flag
             if isinstance(flag, str):
-                if flag.lower() == "true":
-                    return 1
-                if flag.lower() == "false":
-                    return 0
-                try:
-                    return int(flag)
-                except Exception:
-                    return 0
+                if flag.lower() == "true": return 1
+                if flag.lower() == "false": return 0
+                try: return int(flag)
+                except Exception: return 0
             return 0
 
         try:
-            # Ưu tiên bắt đúng thứ tự giao thức!
-            if hasattr(pkt, 'udp'):
-                proto = 'UDP'
-            elif hasattr(pkt, 'tcp'):
-                proto = 'TCP'
-            elif hasattr(pkt, 'icmp'):
-                proto = 'ICMP'
-            else:
-                proto = 'Unknown'
+            if hasattr(pkt, 'udp'): proto = 'UDP'
+            elif hasattr(pkt, 'tcp'): proto = 'TCP'
+            elif hasattr(pkt, 'icmp'): proto = 'ICMP'
+            else: proto = 'Unknown'
+
             timestamp = float(pkt.sniff_time.timestamp())
             length = int(pkt.length)
-
-            # Chỉ xử lý IP/TCP/UDP
             if not hasattr(pkt, 'ip'):
                 return None
-            src_ip = pkt.ip.src
-            dst_ip = pkt.ip.dst
+            src_ip, dst_ip = pkt.ip.src, pkt.ip.dst
 
+            src_port = dst_port = 0
             if proto == "TCP" and hasattr(pkt, 'tcp'):
                 src_port, dst_port = pkt.tcp.srcport, pkt.tcp.dstport
             elif proto == "UDP" and hasattr(pkt, 'udp'):
                 src_port, dst_port = pkt.udp.srcport, pkt.udp.dstport
-            else:
-                src_port = dst_port = 0
 
-            # Tạo key cho flow
             flow_key = f"{src_ip}-{dst_ip}:{dst_port}"
 
             with self.lock:
                 flow = self.flow_dict.setdefault(flow_key, {
-                    "Packet Lengths": [],
-                    "Packet Times": [],
-                    "SYN Flag Count": 0,
-                    "FIN Flag Count": 0,
-                    "RST Flag Count": 0,
-                    "PSH Flag Count": 0,
-                    "ACK Flag Count": 0,
-                    "URG Flag Count": 0,
-                    "Flow Start Time": 0,
-                    "Protocol": proto,
-                    "Source IP": src_ip,
-                    "Destination IP": dst_ip,
-                    "Source Port": int(src_port) if src_port else 0,
+                    "Packet Lengths": [], "Packet Times": [],
+                    "SYN Flag Count": 0, "FIN Flag Count": 0, "RST Flag Count": 0,
+                    "PSH Flag Count": 0, "ACK Flag Count": 0, "URG Flag Count": 0,
+                    "Flow Start Time": 0, "Protocol": proto, "Source IP": src_ip,
+                    "Destination IP": dst_ip, "Source Port": int(src_port) if src_port else 0,
                     "Destination Port": int(dst_port) if dst_port else 0,
                 })
                 if flow["Flow Start Time"] == 0:
@@ -140,13 +101,11 @@ class PacketCapture:
                     if safe_flag_to_int(getattr(tcp, "flags_ack", 0)): flow["ACK Flag Count"] += 1
                     if safe_flag_to_int(getattr(tcp, "flags_urg", 0)): flow["URG Flag Count"] += 1
 
-                # Khi đạt số lượng gói, push flow vào queue để detection xử lý
                 if len(flow["Packet Lengths"]) >= self.max_packets_per_flow:
-                    flow_summary = dict(flow)  # Copy dữ liệu
+                    flow_summary = dict(flow)
                     flow_summary["Flow Key"] = flow_key
                     flow_summary["Flow Duration"] = (
-                        flow["Packet Times"][-1] - flow["Packet Times"][0]
-                        if len(flow["Packet Times"]) > 1 else 0
+                        flow["Packet Times"][-1] - flow["Packet Times"][0] if len(flow["Packet Times"]) > 1 else 0
                     )
                     flow_summary["Total Bytes"] = sum(flow["Packet Lengths"])
                     flow_summary["Total Packets"] = len(flow["Packet Lengths"])
@@ -154,13 +113,27 @@ class PacketCapture:
                     flow_summary["Packet Rate"] = flow_summary["Total Packets"] / duration if duration > 0 else 0
                     flow_summary["Byte Rate"] = flow_summary["Total Bytes"] / duration if duration > 0 else 0
 
+                    # === Gán nhãn đơn giản ===
+                    proto_num = {'ICMP': 1, 'UDP': 17, 'TCP': 6}.get(proto, 0)
+                    flow_summary["Protocol"] = proto_num
+                    if proto == 'TCP' and flow["SYN Flag Count"] > 10 and flow["ACK Flag Count"] == 0:
+                        flow_summary["Label"] = "Syn"
+                    elif proto == 'TCP' and flow["ACK Flag Count"] > 20 and flow["SYN Flag Count"] == 0:
+                        flow_summary["Label"] = "ACK"
+                    elif proto == 'UDP':
+                        flow_summary["Label"] = "UDP"
+                    elif proto == 'ICMP':
+                        flow_summary["Label"] = "ICMP"
+                    else:
+                        flow_summary["Label"] = "Benign"
+
                     del self.flow_dict[flow_key]
+                    self.flow_logger.log_flow(flow_summary)
                     print(
                         f"[DEBUG] PUSH FLOW: {flow_key}, packets: {flow_summary['Total Packets']}, bytes: {flow_summary['Total Bytes']}, rate: {flow_summary['Packet Rate']:.2f}, proto: {proto}"
                     )
                     return flow_summary
 
-            # Print từng packet nếu muốn debug chi tiết hơn:
             print(f"Captured packet: proto={proto}, src={src_ip}, dst={dst_ip}, len={length}")
 
         except Exception as e:
@@ -168,7 +141,6 @@ class PacketCapture:
         return None
 
     def _clean_old_flows(self, timeout=60):
-        """Xóa các flow chưa đủ packet nhưng đã quá cũ để giải phóng bộ nhớ."""
         now = time.time()
         to_delete = []
         with self.lock:
@@ -177,6 +149,7 @@ class PacketCapture:
                     to_delete.append(key)
             for key in to_delete:
                 del self.flow_dict[key]
+
 
     # def _calculate_flow_features(self, flow_key: str) -> Dict[str, Any]:
     #     """
