@@ -5,8 +5,6 @@ from typing import List, Dict, Any, Optional
 import pyshark
 
 class PacketCapture:
-    """Thu thập gói tin và phân tích luồng mạng thời gian thực."""
-
     def __init__(self, interface: str, packet_queue: queue.Queue,
                  capture_filter: Optional[str] = None, buffer_size: int = 1000, max_packets_per_flow: int = 20):
         self.interface = interface
@@ -34,7 +32,8 @@ class PacketCapture:
         try:
             capture = pyshark.LiveCapture(
                 interface=self.interface,
-                display_filter=self.capture_filter
+                bpf_filter="tcp",  # BPF đơn giản, không bị lỗi liên quan đến parser
+                use_json=True
             )
             for packet in capture.sniff_continuously():
                 if not self.running:
@@ -48,16 +47,6 @@ class PacketCapture:
             print(f"Lỗi khi bắt gói tin: {e}")
 
     def _process_packet(self, pkt):
-        def safe_flag_to_int(flag):
-            if isinstance(flag, bool): return int(flag)
-            if isinstance(flag, int): return flag
-            if isinstance(flag, str):
-                if flag.lower() == "true": return 1
-                if flag.lower() == "false": return 0
-                try: return int(flag)
-                except Exception: return 0
-            return 0
-
         try:
             if hasattr(pkt, 'udp'): proto = 'UDP'
             elif hasattr(pkt, 'tcp'): proto = 'TCP'
@@ -92,14 +81,17 @@ class PacketCapture:
                 flow["Packet Lengths"].append(length)
                 flow["Packet Times"].append(timestamp)
 
-                if proto == "TCP" and hasattr(pkt, 'tcp'):
-                    tcp = pkt.tcp
-                    if safe_flag_to_int(getattr(tcp, "flags_syn", 0)): flow["SYN Flag Count"] += 1
-                    if safe_flag_to_int(getattr(tcp, "flags_fin", 0)): flow["FIN Flag Count"] += 1
-                    if safe_flag_to_int(getattr(tcp, "flags_rst", 0)): flow["RST Flag Count"] += 1
-                    if safe_flag_to_int(getattr(tcp, "flags_psh", 0)): flow["PSH Flag Count"] += 1
-                    if safe_flag_to_int(getattr(tcp, "flags_ack", 0)): flow["ACK Flag Count"] += 1
-                    if safe_flag_to_int(getattr(tcp, "flags_urg", 0)): flow["URG Flag Count"] += 1
+                if proto == "TCP" and hasattr(pkt, 'tcp') and hasattr(pkt.tcp, "flags"):
+                    try:
+                        flags = int(pkt.tcp.flags, 16)
+                        if flags & 0x02: flow["SYN Flag Count"] += 1  # SYN
+                        if flags & 0x01: flow["FIN Flag Count"] += 1  # FIN
+                        if flags & 0x04: flow["RST Flag Count"] += 1  # RST
+                        if flags & 0x08: flow["PSH Flag Count"] += 1  # PSH
+                        if flags & 0x10: flow["ACK Flag Count"] += 1  # ACK
+                        if flags & 0x20: flow["URG Flag Count"] += 1  # URG
+                    except Exception as e:
+                        print(f"[WARN] Không parse được flags: {e}")
 
                 if len(flow["Packet Lengths"]) >= self.max_packets_per_flow:
                     flow_summary = dict(flow)
@@ -113,7 +105,7 @@ class PacketCapture:
                     flow_summary["Packet Rate"] = flow_summary["Total Packets"] / duration if duration > 0 else 0
                     flow_summary["Byte Rate"] = flow_summary["Total Bytes"] / duration if duration > 0 else 0
 
-                    # === Gán nhãn đơn giản ===
+                    # Gán nhãn đơn giản
                     proto_num = {'ICMP': 1, 'UDP': 17, 'TCP': 6}.get(proto, 0)
                     flow_summary["Protocol"] = proto_num
                     if proto == 'TCP' and flow["SYN Flag Count"] > 10 and flow["ACK Flag Count"] == 0:
@@ -128,10 +120,6 @@ class PacketCapture:
                         flow_summary["Label"] = "Benign"
 
                     del self.flow_dict[flow_key]
-                    self.flow_logger.log_flow(flow_summary)
-                    print(
-                        f"[DEBUG] PUSH FLOW: {flow_key}, packets: {flow_summary['Total Packets']}, bytes: {flow_summary['Total Bytes']}, rate: {flow_summary['Packet Rate']:.2f}, proto: {proto}"
-                    )
                     return flow_summary
 
             print(f"Captured packet: proto={proto}, src={src_ip}, dst={dst_ip}, len={length}")
@@ -149,6 +137,7 @@ class PacketCapture:
                     to_delete.append(key)
             for key in to_delete:
                 del self.flow_dict[key]
+
 
 
     # def _calculate_flow_features(self, flow_key: str) -> Dict[str, Any]:
