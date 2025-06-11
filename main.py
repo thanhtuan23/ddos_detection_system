@@ -272,9 +272,9 @@ class DDoSDetectionSystem:
             if hasattr(self, 'detection_engine'):
                 component_status['detection']['running'] = self.detection_engine.is_running
             if hasattr(self, 'prevention_engine'):
-                component_status['prevention']['running'] = self.prevention_engine.is_running
+                component_status['prevention']['running'] = self.prevention_engine.running
             if hasattr(self, 'notification_service'):
-                component_status['notification']['running'] = self.notification_service.is_running
+                component_status['notification']['running'] = self.notification_service.running
             
             # Xử lý cấu hình Detection
             if section == 'detection':
