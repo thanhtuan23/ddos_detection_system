@@ -57,8 +57,10 @@ class DDoSDetectionSystem:
         # Khởi tạo các thành phần
         self.packet_queue = queue.Queue()
         self.setup_components()
+
         self.prevention_engine = PreventionEngine()
-        
+        self.prevention_engine.start()
+
         # Trạng thái hệ thống
         self.running = False
         self.stats_thread = None
