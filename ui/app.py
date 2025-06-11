@@ -149,29 +149,29 @@ def get_blocked_ips():
         app.logger.error(f"Lỗi khi lấy danh sách IP bị chặn: {e}")
         return jsonify({'error': str(e)}), 500
     
-@app.route('/api/block_ip', methods=['POST'])
-def block_ip():
-    """API để chặn một IP."""
-    ip = request.json.get('ip')
-    if not ip:
-        return jsonify({'success': False, 'error': 'No IP provided'})
+# @app.route('/api/block_ip', methods=['POST'])
+# def block_ip():
+#     """API để chặn một IP."""
+#     ip = request.json.get('ip')
+#     if not ip:
+#         return jsonify({'success': False, 'error': 'No IP provided'})
         
-    if hasattr(app, 'block_ip_callback'):
-        attack_info = {'attack_type': 'Manual', 'confidence': 1.0}
-        success = app.block_ip_callback(ip, attack_info)
-        return jsonify({'success': success})
-    return jsonify({'success': False, 'error': 'Callback not registered'})
+#     if hasattr(app, 'block_ip_callback'):
+#         attack_info = {'attack_type': 'Manual', 'confidence': 1.0}
+#         success = app.block_ip_callback(ip, attack_info)
+#         return jsonify({'success': success})
+#     return jsonify({'success': False, 'error': 'Callback not registered'})
 
-@app.route('/api/unblock_ip', methods=['POST'])
-def unblock_ip():
-    ip = request.json.get('ip')
-    if not ip:
-        return jsonify({'success': False, 'error': 'No IP provided'})
+# @app.route('/api/unblock_ip', methods=['POST'])
+# def unblock_ip():
+#     ip = request.json.get('ip')
+#     if not ip:
+#         return jsonify({'success': False, 'error': 'No IP provided'})
         
-    if hasattr(app, 'unblock_ip_callback'):
-        success = app.unblock_ip_callback(ip)
-        return jsonify({'success': success})
-    return jsonify({'success': False, 'error': 'Callback not registered'})
+#     if hasattr(app, 'unblock_ip_callback'):
+#         success = app.unblock_ip_callback(ip)
+#         return jsonify({'success': success})
+#     return jsonify({'success': False, 'error': 'Callback not registered'})
 
 @app.route('/api/detection_stats')
 def get_detection_stats():

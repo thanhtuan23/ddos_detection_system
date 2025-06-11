@@ -69,17 +69,18 @@ class ModelLoader:
             raise
 
     def _extract_feature_columns(self):
-        """Trích xuất danh sách cột đặc trưng từ mô hình hoặc trả về list mặc định."""
+        """Trích xuất danh sách cột đặc trưng từ mô hình hoặc từ file pickle."""
         if hasattr(self.model, 'feature_names_in_'):
             self.feature_columns = list(self.model.feature_names_in_)
             self.logger.info(f"Đặc trưng từ model.feature_names_in_: {self.feature_columns}")
+        elif self.loaded_data and 'features' in self.loaded_data:
+            # Ưu tiên lấy từ file model.pkl nếu có
+            self.feature_columns = self.loaded_data['features']
+            self.logger.info(f"Đặc trưng từ file model.pkl: {self.feature_columns}")
         else:
-            # Danh sách đặc trưng mặc định
+            # Chỉ fallback nếu hoàn toàn không có thông tin
             self.feature_columns = [
-                'Protocol', 'Flow Duration', 'Total Packets', 'Total Bytes',
-                'Packet Rate', 'Byte Rate', 'Packet Length Mean', 'Packet Length Std',
-                'Packet Length Min', 'Packet Length Max', 'SYN Flag Count',
-                'FIN Flag Count', 'RST Flag Count', 'PSH Flag Count',
-                'ACK Flag Count', 'URG Flag Count', 'SYN Flag Rate', 'ACK Flag Rate'
+                'ACK Flag Count', 'Fwd Packet Length Min', 'Protocol', 'URG Flag Count',
+                'Fwd Packet Length Max', 'Fwd Packet Length Std', 'Init Fwd Win Bytes', 'Bwd Packet Length Max'
             ]
-            self.logger.info(f"Sử dụng danh sách đặc trưng mặc định: {self.feature_columns}")
+            self.logger.warning("Không tìm thấy thông tin đặc trưng — sử dụng danh sách mặc định (top 8 feature)")

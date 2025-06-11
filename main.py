@@ -57,6 +57,7 @@ class DDoSDetectionSystem:
         # Khởi tạo các thành phần
         self.packet_queue = queue.Queue()
         self.setup_components()
+        self.prevention_engine = PreventionEngine()
         
         # Trạng thái hệ thống
         self.running = False
@@ -115,7 +116,10 @@ class DDoSDetectionSystem:
                 self.packet_queue,
                 detection_threshold,
                 check_interval,
-                batch_size
+                batch_size,
+                config=self.config,  # Truyền config để có thể sử dụng trong feature_extractor
+                prevention_engine=self.prevention_engine,
+                label_encoder=label_encoder
                 # streaming_services và false_positive_threshold bị loại bỏ
             )
             

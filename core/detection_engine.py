@@ -12,7 +12,8 @@ from sklearn.base import BaseEstimator
 class DetectionEngine:
     def __init__(self, model, feature_extractor, notification_callback: Callable,
                  packet_queue: queue.Queue, detection_threshold: float = 0.7,
-                 check_interval: float = 1.0, batch_size: int = 10, config=None):
+                 check_interval: float = 1.0, batch_size: int = 10, config=None, label_encoder=None,
+                 prevention_engine=None):
         self.model = model
         self.feature_extractor = feature_extractor
         self.running = False
@@ -26,18 +27,13 @@ class DetectionEngine:
 
         self.attack_log = {}
         self.detection_thread = None
-
+        self.prevention_engine = prevention_engine
         self.processing_times = []
         self.detection_counts = {'total_flows': 0, 'attack_flows': 0, 'last_reset_time': time.time()}
-        self.attack_types = {
-            0: "Benign",
-            1: "UDP",
-            2: "UDPLag",
-            3: "MSSQL",
-            4: "LDAP",
-            5: "NetBIOS", 
-            6: "Syn"
-        }
+        if label_encoder is not None:
+            self.attack_types = {i: name for i, name in enumerate(label_encoder.classes_)}
+        else:
+            self.attack_types = {}
 
         # === Bổ sung: load whitelist IP/port từ config ===
         self.whitelist_ip, self.whitelist_port = self.load_whitelist_from_config(config)
