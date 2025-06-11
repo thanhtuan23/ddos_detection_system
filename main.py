@@ -40,12 +40,6 @@ class DDoSDetectionSystem:
     """
     
     def __init__(self, config_path: str):
-        """
-        Khởi tạo hệ thống.
-        
-        Args:
-            config_path: Đường dẫn đến tệp tin cấu hình
-        """
         # Thiết lập logging
         logging.config.fileConfig('config/logging.conf')
         self.logger = logging.getLogger(__name__)
@@ -54,12 +48,13 @@ class DDoSDetectionSystem:
         self.config = configparser.ConfigParser()
         self.config.read(config_path)
         
-        # Khởi tạo các thành phần
-        self.packet_queue = queue.Queue()
-        self.setup_components()
-
+        # ✅ Khởi tạo prevention_engine TRƯỚC
         self.prevention_engine = PreventionEngine()
         self.prevention_engine.start()
+        
+        # ✅ Sau đó mới setup các thành phần khác
+        self.packet_queue = queue.Queue()
+        self.setup_components()
 
         # Trạng thái hệ thống
         self.running = False
