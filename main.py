@@ -8,16 +8,19 @@ import logging
 import logging.config
 import configparser
 from typing import Dict, Any, List, Optional
+import warnings
+from sklearn.exceptions import InconsistentVersionWarning
+
+# Lọc chính xác theo nội dung (đề phòng subclass không nhận)
+warnings.filterwarnings('ignore', message='.*Trying to unpickle estimator .* from version.*')
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+warnings.filterwarnings('ignore', message='X does not have valid feature names')
 
 # Cấu hình logging sớm để giảm bớt thông báo không cần thiết
 logging.config.fileConfig('config/logging.conf')
 
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.setLevel(logging.WARNING)
-
-# Bỏ qua cảnh báo sklearn về feature names
-import warnings
-warnings.filterwarnings('ignore', message='X does not have valid feature names')
 
 # Thêm thư mục gốc vào sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))

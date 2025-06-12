@@ -126,12 +126,6 @@ class NotificationService:
     def _send_email_notification(self, attack_info: Dict[str, Any]) -> bool:
         """
         Gửi email thông báo về cuộc tấn công DDoS.
-        
-        Args:
-            attack_info: Thông tin về cuộc tấn công
-            
-        Returns:
-            True nếu gửi thành công, False nếu không
         """
         try:
             attack_type = attack_info.get('attack_type', 'Unknown')
