@@ -219,6 +219,8 @@ class DetectionEngine:
                 # Log debug
                 self.logger.debug(f"CHECK: {flow_key}, attack_type={attack_type}, prob={attack_prob:.4f}, threshold={attack_specific_threshold}")
 
+                #log feautures
+                self.logger.debug(f"Flow features: {flows[i]}")
                 # ========== 3. BÁO ĐỘNG NẾU QUA ĐƯỢC MỌI LỌC ==========
                 if attack_prob >= attack_specific_threshold:
                     self.detection_counts['attack_flows'] += 1

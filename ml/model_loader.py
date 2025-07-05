@@ -80,7 +80,12 @@ class ModelLoader:
         else:
             # Chỉ fallback nếu hoàn toàn không có thông tin
             self.feature_columns = [
-                'ACK Flag Count', 'Fwd Packet Length Min', 'Protocol', 'URG Flag Count',
-                'Fwd Packet Length Max', 'Fwd Packet Length Std', 'Init Fwd Win Bytes', 'Bwd Packet Length Max'
+                'Protocol', 'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets', 'Fwd Packets Length Total', 
+                'Fwd Packet Length Max', 'Fwd Packet Length Min', 'Fwd Packet Length Std', 
+                'Bwd Packet Length Max', 'Bwd Packet Length Min', 'Flow Bytes/s', 'Flow Packets/s', 'Flow IAT Mean', 
+                'Flow IAT Min', 'Bwd IAT Total', 'Bwd IAT Mean', 'Bwd IAT Min', 'Fwd PSH Flags', 'Fwd Header Length', 
+                'Bwd Header Length', 'Bwd Packets/s', 'SYN Flag Count', 'ACK Flag Count', 'URG Flag Count', 'CWE Flag Count', 
+                'Down/Up Ratio', 'Init Fwd Win Bytes', 'Init Bwd Win Bytes', 'Fwd Act Data Packets', 'Active Mean', 'Active Std', 
+                'Idle Std'
             ]
             self.logger.warning("Không tìm thấy thông tin đặc trưng — sử dụng danh sách mặc định (top 8 feature)")

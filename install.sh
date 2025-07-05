@@ -3,11 +3,18 @@
 
 echo "Cài đặt hệ thống phát hiện và ngăn chặn DDoS..."
 
-# Tạo môi trường Python ảo
-echo "Tạo môi trường Python ảo..."
-python3 -m venv venv
-# python3.12
-# python3.12 -m venv venv
+# Kiểm tra python3.12 đã cài chưa
+if ! command -v python3.12 &> /dev/null
+then
+    echo "Lỗi: python3.12 chưa được cài. Vui lòng cài đặt Python 3.12 trước."
+    exit 1
+fi
+
+# Tạo môi trường Python ảo bằng Python 3.12
+echo "Tạo môi trường Python ảo với Python 3.12..."
+python3.12 -m venv venv
+
+# Kích hoạt môi trường ảo
 source venv/bin/activate
 
 # Cài đặt các gói phụ thuộc
