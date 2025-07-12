@@ -67,18 +67,51 @@ class DDoSDetectionSystem:
     def setup_components(self):
         """Thiết lập các thành phần của hệ thống."""
         try:
-            # Tải mô hình
+            # Tải mô hình chính (CIC-DDoS)
             model_path = self.config.get('Detection', 'model_path')
             model_loader = ModelLoader(model_path)
             self.model, feature_columns, scaler, label_encoder, label_mapping = model_loader.load_model()
             
-            # Thiết lập các thành phần
+            # Tải mô hình phụ (Suricata) nếu được cấu hình
+            secondary_model = None
+            secondary_feature_extractor = None
+            secondary_label_encoder = None
+            
+            if self.config.has_option('Detection', 'secondary_model_path') and \
+            self.config.getboolean('Detection', 'use_secondary_model', fallback=True):
+                try:
+                    secondary_model_path = self.config.get('Detection', 'secondary_model_path')
+                    secondary_loader = ModelLoader(secondary_model_path)
+                    secondary_model, secondary_features, secondary_scaler, secondary_label_encoder, secondary_label_mapping = secondary_loader.load_model()
+                    
+                    # Kiểm tra và ghi log thông tin về đặc trưng
+                    self.logger.info(f"Mô hình phụ Suricata yêu cầu {len(secondary_features)} đặc trưng")
+                    self.logger.info(f"Đặc trưng mô hình phụ: {secondary_features}")
+                    
+                    # Khởi tạo feature extractor cho mô hình phụ
+                    secondary_feature_extractor = FeatureExtractor(
+                        secondary_features, 
+                        self.config, 
+                        model_type="suricata"
+                    )
+                    
+                    self.logger.info(f"Đã tải mô hình phụ Suricata thành công")
+                    
+                except Exception as e:
+                    self.logger.warning(f"Không thể tải mô hình phụ: {e}")
+                    self.logger.warning("Hệ thống sẽ chỉ sử dụng mô hình chính")
+            
+            # Thiết lập các thành phần khác
             interface = self.config.get('Network', 'interface')
             capture_filter = self.config.get('Network', 'capture_filter')
             self.packet_capture = PacketCapture(interface, self.packet_queue, capture_filter)
             
+            # Kiểm tra và ghi log thông tin về đặc trưng
+            self.logger.info(f"Mô hình chính CIC-DDoS yêu cầu {len(feature_columns)} đặc trưng")
+            self.logger.info(f"Đặc trưng mô hình chính: {feature_columns}")
+            
             # Truyền config cho feature_extractor
-            self.feature_extractor = FeatureExtractor(feature_columns, self.config)
+            self.feature_extractor = FeatureExtractor(feature_columns, self.config, model_type="cicddos")
             
             # Thiết lập dịch vụ thông báo
             email_config = {
@@ -93,12 +126,7 @@ class DDoSDetectionSystem:
             
             # Đăng ký callback để nhận thông báo tấn công
             self.notification_service.register_callback('attack_detected', on_attack_detected)
-            
-            # Thiết lập engine phát hiện
-            detection_threshold = self.config.getfloat('Detection', 'detection_threshold')
-            check_interval = self.config.getfloat('Detection', 'check_interval')
-            batch_size = self.config.getint('Detection', 'batch_size')
-            
+
             # Đọc cấu hình streaming services và ngưỡng false positive (để tham khảo sau này)
             self.streaming_services = self.config.get('Detection', 'streaming_services', 
                                                     fallback='youtube,netflix').split(',')
@@ -108,7 +136,11 @@ class DDoSDetectionSystem:
                                                           'false_positive_threshold', 
                                                           fallback=0.8)
             
-            # Khởi tạo detection engine KHÔNG truyền các tham số chưa được hỗ trợ
+            # Thiết lập engine phát hiện với cả hai mô hình
+            detection_threshold = self.config.getfloat('Detection', 'detection_threshold')
+            check_interval = self.config.getfloat('Detection', 'check_interval')
+            batch_size = self.config.getint('Detection', 'batch_size')
+            
             self.detection_engine = DetectionEngine(
                 self.model, 
                 self.feature_extractor, 
@@ -117,12 +149,14 @@ class DDoSDetectionSystem:
                 detection_threshold,
                 check_interval,
                 batch_size,
-                config=self.config,  # Truyền config để có thể sử dụng trong feature_extractor
+                config=self.config,
+                label_encoder=label_encoder,
                 prevention_engine=self.prevention_engine,
-                label_encoder=label_encoder
-                # streaming_services và false_positive_threshold bị loại bỏ
+                secondary_model=secondary_model,
+                secondary_feature_extractor=secondary_feature_extractor,
+                secondary_label_encoder=secondary_label_encoder
             )
-            
+
             # Lưu các tham số này vào thuộc tính của detection_engine (nếu engine hỗ trợ)
             try:
                 self.detection_engine.streaming_services = self.streaming_services
@@ -370,6 +404,38 @@ class DDoSDetectionSystem:
             self.detection_engine.false_positive_threshold = float(config['false_positive_threshold'])
             self.logger.info(f"Đã cập nhật ngưỡng false positive: {config['false_positive_threshold']}")
     
+    # main.py (phần cần thêm vào lớp DDoSDetectionSystem)
+
+    def _validate_feature_compatibility(self):
+        """Kiểm tra tính tương thích của đặc trưng giữa các mô hình và dữ liệu luồng."""
+        try:
+            # Lấy một mẫu luồng từ packet_capture nếu có
+            if hasattr(self, 'packet_capture') and hasattr(self.packet_capture, 'flow_table'):
+                sample_flows = list(self.packet_capture.flow_table.values())
+                if sample_flows:
+                    sample_flow = sample_flows[0]
+                    
+                    # Kiểm tra đặc trưng CIC-DDoS
+                    if hasattr(self, 'feature_extractor'):
+                        cicddos_features = self.feature_extractor.extract_features(sample_flow)
+                        missing_cicddos = [f for f in self.feature_extractor.feature_columns if f not in cicddos_features]
+                        if missing_cicddos:
+                            self.logger.warning(f"Các đặc trưng CIC-DDoS sau không có trong dữ liệu luồng: {missing_cicddos}")
+                            self.logger.info("Sẽ sử dụng giá trị mặc định cho các đặc trưng này")
+                    
+                    # Kiểm tra đặc trưng Suricata
+                    if hasattr(self, 'secondary_feature_extractor'):
+                        suricata_features = self.secondary_feature_extractor.extract_features(sample_flow)
+                        missing_suricata = [f for f in self.secondary_feature_extractor.feature_columns if f not in suricata_features]
+                        if missing_suricata:
+                            self.logger.warning(f"Các đặc trưng Suricata sau không có trong dữ liệu luồng: {missing_suricata}")
+                            self.logger.info("Sẽ sử dụng giá trị mặc định cho các đặc trưng này")
+            
+            self.logger.info("Kiểm tra tương thích đặc trưng hoàn tất")
+            
+        except Exception as e:
+            self.logger.error(f"Lỗi khi kiểm tra tương thích đặc trưng: {e}", exc_info=True)
+            
     def _update_network_config(self, config: Dict[str, Any], component_status: Dict[str, Dict[str, bool]]):
         """Cập nhật cấu hình network."""
         need_restart = False

@@ -1,91 +1,240 @@
-import pickle
+from typing import Dict, List, Any, Union, Tuple, Optional
 import os
+import pickle
+import numpy as np
+import pandas as pd
 import logging
-from typing import Tuple, List, Dict, Any, Optional
-from sklearn.base import BaseEstimator
+import joblib
+from sklearn.ensemble import RandomForestClassifier
+import time
 
 class ModelLoader:
     """
-    Tải và quản lý mô hình ML đã được huấn luyện.
+    Lớp tải mô hình phát hiện tấn công DDoS.
     """
-
-    def __init__(self, model_path: str):
-        self.model_path = model_path
-        self.model = None
-        self.feature_columns: List[str] = []
-        self.scaler = None
-        self.label_encoder = None
-        self.label_mapping = None
-        self.logger = logging.getLogger("model_loader")
-
-    def load_model(self) -> Tuple[BaseEstimator, List[str], Optional[Any], Optional[Any], Optional[Dict]]:
+    
+    def __init__(self, model_paths: Union[str, List[str]]):
         """
-        Tải mô hình ML từ tệp tin.
-
+        Khởi tạo ModelLoader.
+        
+        Args:
+            model_paths: Đường dẫn tới (các) file mô hình
+        """
+        self.model_paths = [model_paths] if isinstance(model_paths, str) else model_paths
+        self.logger = logging.getLogger("ddos_detection_system.ml.model_loader")
+        self.logger.info(f"Khởi tạo ModelLoader với {len(self.model_paths)} mô hình")
+    
+    def load_model(self) -> Tuple:
+        """
+        Tải mô hình mặc định (mô hình đầu tiên).
+        
         Returns:
-            Tuple của (model, feature_columns, scaler, label_encoder, label_mapping)
+            Tuple chứa (model, feature_columns, scaler, label_encoder, label_mapping)
         """
+        if not self.model_paths:
+            raise ValueError("Không có đường dẫn mô hình nào được cung cấp")
+        
+        # Tải mô hình đầu tiên
+        return self.load_model_by_index(0)
+    
+    def load_model_by_index(self, index: int = 0) -> Tuple:
+        """
+        Tải mô hình theo chỉ số.
+        
+        Args:
+            index: Chỉ số của mô hình cần tải
+            
+        Returns:
+            Tuple chứa (model, feature_columns, scaler, label_encoder, label_mapping)
+        """
+        if index < 0 or index >= len(self.model_paths):
+            raise ValueError(f"Chỉ số mô hình không hợp lệ: {index}")
+        
+        model_path = self.model_paths[index]
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Không tìm thấy file mô hình: {model_path}")
+        
+        # Xác định loại mô hình dựa vào tên file
+        model_type = self._determine_model_type(model_path)
+        
+        # Tải mô hình
         try:
-            if not os.path.exists(self.model_path):
-                self.logger.error(f"Tệp tin mô hình không tồn tại: {self.model_path}")
-                raise FileNotFoundError(f"Tệp tin mô hình không tồn tại: {self.model_path}")
-
-            with open(self.model_path, 'rb') as f:
-                loaded_data = pickle.load(f)
-
-            if isinstance(loaded_data, dict) and 'model' in loaded_data:
-                self.model = loaded_data['model']
-                self.feature_columns = loaded_data.get('features', [])
-                self.scaler = loaded_data.get('scaler')
-                self.label_encoder = loaded_data.get('label_encoder')
-                self.label_mapping = loaded_data.get('label_mapping', None)
-                self.logger.info(f"Đã tải mô hình có metadata từ {self.model_path}")
-                self.logger.info(f"Loại mô hình: {loaded_data.get('model_type', type(self.model).__name__)}")
-                self.logger.info(f"Số lượng đặc trưng: {loaded_data.get('n_features', len(self.feature_columns))}")
-                if self.label_mapping:
-                    self.logger.info(f"Ánh xạ nhãn: {self.label_mapping}")
+            with open(model_path, 'rb') as f:
+                model_info = pickle.load(f)
+            
+            if not isinstance(model_info, dict):
+                raise ValueError(f"Định dạng mô hình không hợp lệ: {model_path} không chứa dictionary")
+            
+            # Trích xuất model từ thông tin
+            model = model_info.get('model')
+            if model is None:
+                raise ValueError(f"Không tìm thấy 'model' trong file: {model_path}")
+            
+            # Trích xuất scaler và label_encoder
+            scaler = model_info.get('scaler')
+            label_encoder = model_info.get('label_encoder')
+            
+            # Trích xuất và xử lý label_mapping dựa trên định dạng
+            label_mapping = model_info.get('label_mapping')
+            if label_mapping is None and label_encoder is not None:
+                # Nếu không có label_mapping nhưng có label_encoder
+                label_mapping = {i: c for i, c in enumerate(label_encoder.classes_)}
+            elif label_mapping is None:
+                # Nếu không có cả hai, tạo mapping mặc định dựa trên loại mô hình
+                if model_type == "suricata":
+                    label_mapping = {0: 'DDoS'}
+                else:  # cicddos hoặc default
+                    label_mapping = {
+                        0: 'Benign', 
+                        1: 'LDAP', 
+                        2: 'MSSQL', 
+                        3: 'NetBIOS', 
+                        4: 'Syn', 
+                        5: 'UDP', 
+                        6: 'UDPLag'
+                    }
+            
+            # Trích xuất feature_columns dựa trên định dạng
+            if model_type == "suricata":
+                # Cho mô hình Suricata
+                if 'original_features' in model_info:
+                    feature_columns = model_info['original_features']
+                elif 'selected_features' in model_info:
+                    feature_columns = model_info['selected_features']
+                else:
+                    # Danh sách đặc trưng mặc định cho Suricata
+                    feature_columns = [
+                        'src_port', 'dest_port', 'bytes_toserver', 'bytes_toclient', 'pkts_toserver', 
+                        'pkts_toclient', 'total_bytes', 'total_pkts', 'avg_bytes_per_pkt', 'bytes_ratio', 
+                        'pkts_ratio', 'is_wellknown_port', 'proto_tcp', 'proto_udp', 'proto_ipv6-icmp', 
+                        'proto_icmp', 'proto_ICMP', 'proto_IPv6-ICMP', 'proto_TCP', 'proto_UDP'
+                    ]
             else:
-                # Trường hợp model cũ
-                self.model = loaded_data
-                self._extract_feature_columns()
-                self.logger.info(f"Đã tải mô hình đơn thuần từ {self.model_path}")
-
-            self.logger.info(f"Tổng số đặc trưng: {len(self.feature_columns)}")
-            if len(self.feature_columns) <= 10:
-                self.logger.info(f"Danh sách đặc trưng: {self.feature_columns}")
-            else:
-                self.logger.info(f"5 đặc trưng đầu tiên: {self.feature_columns[:5]}...")
-
-            if hasattr(self.model, 'n_features_in_'):
-                n_expected = self.model.n_features_in_
-                if len(self.feature_columns) != n_expected:
-                    self.logger.warning(f"Cảnh báo: Số lượng đặc trưng không khớp! "
-                                        f"Mô hình cần {n_expected}, nhưng đã tìm thấy {len(self.feature_columns)}")
-
-            return self.model, self.feature_columns, self.scaler, self.label_encoder, self.label_mapping
-
+                # Cho mô hình CIC-DDoS
+                if 'features' in model_info:
+                    feature_columns = model_info['features']
+                elif hasattr(model, 'feature_names_in_'):
+                    feature_columns = model.feature_names_in_.tolist()
+                else:
+                    # Danh sách đặc trưng mặc định cho CIC-DDoS
+                    feature_columns = [
+                        'ACK Flag Count', 'Fwd Packet Length Min', 'Protocol', 'URG Flag Count', 
+                        'Fwd Packet Length Max', 'Fwd Packet Length Std', 'Init Fwd Win Bytes', 
+                        'Bwd Packet Length Max'
+                    ]
+            
+            # Log thông tin mô hình
+            self._log_model_info(model_info, model_type, feature_columns, label_mapping)
+            
+            return model, feature_columns, scaler, label_encoder, label_mapping
+            
         except Exception as e:
-            self.logger.error(f"Lỗi khi tải mô hình: {e}")
+            self.logger.error(f"Lỗi khi tải mô hình {model_path}: {e}", exc_info=True)
             raise
-
-    def _extract_feature_columns(self):
-        """Trích xuất danh sách cột đặc trưng từ mô hình hoặc từ file pickle."""
-        if hasattr(self.model, 'feature_names_in_'):
-            self.feature_columns = list(self.model.feature_names_in_)
-            self.logger.info(f"Đặc trưng từ model.feature_names_in_: {self.feature_columns}")
-        elif self.loaded_data and 'features' in self.loaded_data:
-            # Ưu tiên lấy từ file model.pkl nếu có
-            self.feature_columns = self.loaded_data['features']
-            self.logger.info(f"Đặc trưng từ file model.pkl: {self.feature_columns}")
+    
+    def load_all_models(self) -> List[Dict[str, Any]]:
+        """
+        Tải tất cả các mô hình.
+        
+        Returns:
+            Danh sách các dict chứa thông tin mô hình
+        """
+        models = []
+        for i in range(len(self.model_paths)):
+            try:
+                model_path = self.model_paths[i]
+                model_type = self._determine_model_type(model_path)
+                
+                # Tải mô hình
+                model_data = self.load_model_by_index(i)
+                model, feature_columns, scaler, label_encoder, label_mapping = model_data
+                
+                # Đóng gói thông tin mô hình
+                model_info = {
+                    'model': model,
+                    'feature_columns': feature_columns,
+                    'scaler': scaler,
+                    'label_encoder': label_encoder,
+                    'label_mapping': label_mapping,
+                    'model_type': model_type,
+                    'model_path': model_path
+                }
+                
+                models.append(model_info)
+                
+            except Exception as e:
+                self.logger.error(f"Lỗi khi tải mô hình thứ {i}: {e}", exc_info=True)
+        
+        return models
+    
+    def _determine_model_type(self, model_path: str) -> str:
+        """
+        Xác định loại mô hình dựa vào tên file.
+        
+        Args:
+            model_path: Đường dẫn tới file mô hình
+            
+        Returns:
+            Loại mô hình dự đoán
+        """
+        filename = os.path.basename(model_path).lower()
+        
+        if "suricata" in filename:
+            return "suricata"
+        elif "cicddos" in filename or "cic" in filename or "ddos_model" in filename:
+            return "cicddos"
         else:
-            # Chỉ fallback nếu hoàn toàn không có thông tin
-            self.feature_columns = [
-                'Protocol', 'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets', 'Fwd Packets Length Total', 
-                'Fwd Packet Length Max', 'Fwd Packet Length Min', 'Fwd Packet Length Std', 
-                'Bwd Packet Length Max', 'Bwd Packet Length Min', 'Flow Bytes/s', 'Flow Packets/s', 'Flow IAT Mean', 
-                'Flow IAT Min', 'Bwd IAT Total', 'Bwd IAT Mean', 'Bwd IAT Min', 'Fwd PSH Flags', 'Fwd Header Length', 
-                'Bwd Header Length', 'Bwd Packets/s', 'SYN Flag Count', 'ACK Flag Count', 'URG Flag Count', 'CWE Flag Count', 
-                'Down/Up Ratio', 'Init Fwd Win Bytes', 'Init Bwd Win Bytes', 'Fwd Act Data Packets', 'Active Mean', 'Active Std', 
-                'Idle Std'
-            ]
-            self.logger.warning("Không tìm thấy thông tin đặc trưng — sử dụng danh sách mặc định (top 8 feature)")
+            return "standard_sklearn"
+    
+    def _log_model_info(self, model_info: Dict[str, Any], model_type: str, feature_columns: List[str], label_mapping: Dict[int, str]):
+        """
+        Ghi log thông tin về mô hình.
+        
+        Args:
+            model_info: Dictionary chứa thông tin mô hình
+            model_type: Loại mô hình (suricata, cicddos, ...)
+            feature_columns: Danh sách các cột đặc trưng
+            label_mapping: Ánh xạ từ số lớp sang tên lớp
+        """
+        # Trích xuất thông tin từ model_info
+        model = model_info.get('model')
+        model_name = type(model).__name__
+        n_features = len(feature_columns)
+        
+        # Thông tin siêu tham số
+        hyperparams = {}
+        if 'hyperparameters' in model_info:
+            hyperparams = model_info['hyperparameters']
+        elif 'best_parameters' in model_info:
+            hyperparams = model_info['best_parameters']
+        elif hasattr(model, 'get_params'):
+            hyperparams = model.get_params()
+        
+        # Thông tin hiệu suất
+        performance = model_info.get('performance', {})
+        
+        # Thông tin ngày tạo
+        creation_date = model_info.get('creation_date') or model_info.get('training_date')
+        
+        # Thông tin phiên bản
+        model_version = model_info.get('model_version', 'N/A')
+        
+        # Log thông tin
+        self.logger.info(f"=====================================")
+        self.logger.info(f"Thông tin mô hình đã lưu: {model_type}")
+        self.logger.info(f"Loại mô hình: {model_name}")
+        self.logger.info(f"Siêu tham số: {hyperparams}")
+        self.logger.info(f"Số lượng đặc trưng: {n_features}")
+        self.logger.info(f"Ánh xạ nhãn: {label_mapping}")
+        self.logger.info(f"Các đặc trưng: {feature_columns}")
+        
+        if creation_date:
+            self.logger.info(f"Ngày tạo: {creation_date}")
+        
+        if model_version != 'N/A':
+            self.logger.info(f"Phiên bản: {model_version}")
+        
+        if performance:
+            self.logger.info(f"Hiệu suất: {performance}")
+        
+        self.logger.info(f"=====================================")

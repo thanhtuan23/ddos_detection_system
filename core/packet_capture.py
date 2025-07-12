@@ -2,6 +2,7 @@ import queue
 import threading
 import time
 from typing import List, Dict, Any, Optional
+import numpy as np
 import pyshark
 
 class PacketCapture:
@@ -52,6 +53,15 @@ class PacketCapture:
             elif hasattr(pkt, 'tcp'): proto = 'TCP'
             elif hasattr(pkt, 'icmp'): proto = 'ICMP'
             else: proto = 'Unknown'
+
+            # Tính toán các đặc trưng bổ sung
+            self._calculate_additional_features(flow)
+            
+            # Thêm các đặc trưng cần thiết cho mô hình CIC-DDoS
+            self._add_cicddos_features(flow)
+            
+            # Thêm các đặc trưng cần thiết cho mô hình Suricata
+            self._add_suricata_features(flow)
 
             timestamp = float(pkt.sniff_time.timestamp())
             length = int(pkt.length)
@@ -138,63 +148,73 @@ class PacketCapture:
             for key in to_delete:
                 del self.flow_dict[key]
 
+    def _add_cicddos_features(self, flow):
+        """
+        Thêm các đặc trưng cần thiết cho mô hình CIC-DDoS.
+        
+        Args:
+            flow: Dict chứa thông tin luồng
+        """
+        # Đảm bảo các cấu trúc dữ liệu cần thiết tồn tại
+        if 'tcp_flags' not in flow:
+            flow['tcp_flags'] = {}
+        
+        if 'packet_lengths' not in flow:
+            flow['packet_lengths'] = {'forward': [], 'backward': []}
+        
+        # Đảm bảo các đặc trưng cụ thể tồn tại
+        if 'init_win_bytes_forward' not in flow:
+            flow['init_win_bytes_forward'] = 0
+        
+        # Tính toán Fwd Packet Length Std nếu chưa có
+        if len(flow['packet_lengths']['forward']) > 1:
+            flow['fwd_pkt_len_std'] = np.std(flow['packet_lengths']['forward'])
+        else:
+            flow['fwd_pkt_len_std'] = 0
 
+    def _add_suricata_features(self, flow):
+        """
+        Thêm các đặc trưng cần thiết cho mô hình Suricata.
+        
+        Args:
+            flow: Dict chứa thông tin luồng
+        """
+        # Đảm bảo các đặc trưng Suricata cụ thể tồn tại
+        if 'bytes_toserver' not in flow and 'fwd_bytes' in flow:
+            flow['bytes_toserver'] = flow['fwd_bytes']
+        
+        if 'bytes_toclient' not in flow and 'bwd_bytes' in flow:
+            flow['bytes_toclient'] = flow['bwd_bytes']
+        
+        if 'pkts_toserver' not in flow and 'fwd_packets' in flow:
+            flow['pkts_toserver'] = flow['fwd_packets']
+        
+        if 'pkts_toclient' not in flow and 'bwd_packets' in flow:
+            flow['pkts_toclient'] = flow['bwd_packets']
+        
+        # Tính toán tổng và tỷ lệ
+        bytes_toserver = flow.get('bytes_toserver', 0)
+        bytes_toclient = flow.get('bytes_toclient', 0)
+        pkts_toserver = flow.get('pkts_toserver', 0)
+        pkts_toclient = flow.get('pkts_toclient', 0)
+        
+        flow['total_bytes'] = bytes_toserver + bytes_toclient
+        flow['total_pkts'] = pkts_toserver + pkts_toclient
+        
+        # Tránh chia cho 0
+        flow['avg_bytes_per_pkt'] = flow['total_bytes'] / max(1, flow['total_pkts'])
+        flow['bytes_ratio'] = bytes_toserver / max(1, bytes_toclient) if bytes_toclient > 0 else bytes_toserver
+        flow['pkts_ratio'] = pkts_toserver / max(1, pkts_toclient) if pkts_toclient > 0 else pkts_toserver
+        
+        # Kiểm tra cổng phổ biến
+        src_port = flow.get('src_port', 0)
+        dst_port = flow.get('dst_port', 0)
+        flow['is_wellknown_port'] = 1 if (src_port < 1024 or dst_port < 1024) else 0
+        
+        # Mã hóa one-hot cho giao thức
+        protocol = flow.get('protocol', 'tcp').lower()
+        for proto in ['tcp', 'udp', 'ipv6-icmp', 'icmp']:
+            flow[f'proto_{proto}'] = 1 if proto == protocol else 0
+            flow[f'proto_{proto.upper()}'] = 1 if proto == protocol else 0
 
-    # def _calculate_flow_features(self, flow_key: str) -> Dict[str, Any]:
-    #     """
-    #     Tính toán các đặc trưng luồng từ các gói tin đã thu thập.
-        
-    #     Args:
-    #         flow_key: Khóa nhận diện luồng
-            
-    #     Returns:
-    #         Dict chứa các đặc trưng luồng cho mô hình ML
-    #     """
-    #     stats = self.flow_stats[flow_key]
-    #     parts = flow_key.split('-')
-    #     current_time = time.time()
-    #     src_dst = parts[0].split(':')
-    #     duration = current_time - stats['start_time']
-        
-    #     features = {
-    #         'Flow Key': flow_key,
-    #         'Source IP': src_dst[0],
-    #         'Destination IP': src_dst[1],
-    #         'Protocol': parts[-1],
-    #         'Flow Duration': duration,
-    #         'Total Packets': stats['packet_count'],
-    #         'Total Bytes': stats['byte_count'],
-    #         'Packet Rate': stats['packet_count'] / duration if duration > 0 else 0,
-    #         'Byte Rate': stats['byte_count'] / duration if duration > 0 else 0,
-    #         'Packet Length Mean': sum(stats['packet_sizes']) / len(stats['packet_sizes']) if stats['packet_sizes'] else 0,
-    #         'Packet Length Std': self._calculate_std(stats['packet_sizes']),
-    #         'Packet Length Min': min(stats['packet_sizes']) if stats['packet_sizes'] else 0,
-    #         'Packet Length Max': max(stats['packet_sizes']) if stats['packet_sizes'] else 0,
-    #         'Source Port': stats.get('Source Port', 0),
-    #         'Destination Port': stats.get('Destination Port', 0),
-    #         'Packet Times': stats.get('Packet Times', [])
-    #     }
-        
-    #     # Thêm các đặc trưng đặc biệt cho TCP
-    #     if 'TCP' in flow_key:
-    #         features.update({
-    #             'SYN Flag Count': stats['syn_count'],
-    #             'FIN Flag Count': stats['fin_count'],
-    #             'RST Flag Count': stats['rst_count'],
-    #             'PSH Flag Count': stats['psh_count'],
-    #             'ACK Flag Count': stats['ack_count'],
-    #             'URG Flag Count': stats['urg_count'],
-    #             'SYN Flag Rate': stats['syn_count'] / stats['packet_count'] if stats['packet_count'] > 0 else 0,
-    #             'ACK Flag Rate': stats['ack_count'] / stats['packet_count'] if stats['packet_count'] > 0 else 0
-    #         })
-        
-    #     return features
-    
-    # def _calculate_std(self, values: List[int]) -> float:
-    #     """Tính độ lệch chuẩn của một danh sách giá trị."""
-    #     if not values or len(values) < 2:
-    #         return 0.0
-    #     mean = sum(values) / len(values)
-    #     variance = sum((x - mean) ** 2 for x in values) / len(values)
-    #     return variance ** 0.5
     

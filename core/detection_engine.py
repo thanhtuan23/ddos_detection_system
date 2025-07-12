@@ -1,52 +1,117 @@
-# src/ddos_detection_system/core/detection_engine.py
-import logging
+# core/detection_engine.py
 import time
-import queue
 import threading
+import logging
 import numpy as np
-import pandas as pd
-from typing import Dict, List, Callable, Any, Optional
-from sklearn.base import BaseEstimator
-
+from typing import Dict, List, Tuple, Any, Optional
+from core.classification_system import ClassificationSystem
 
 class DetectionEngine:
-    def __init__(self, model, feature_extractor, notification_callback: Callable,
-                 packet_queue: queue.Queue, detection_threshold: float = 0.7,
-                 check_interval: float = 1.0, batch_size: int = 10, config=None, label_encoder=None,
-                 prevention_engine=None):
+    """
+    Engine phát hiện tấn công DDoS sử dụng mô hình học máy.
+    """
+    
+    def __init__(self, model, feature_extractor, notification_callback, packet_queue, 
+                 detection_threshold=0.7, check_interval=1.0, batch_size=10, 
+                 config=None, label_encoder=None, prevention_engine=None, 
+                 secondary_model=None, secondary_feature_extractor=None, 
+                 secondary_label_encoder=None):
+        """
+        Khởi tạo engine phát hiện.
+        
+        Args:
+            model: Mô hình chính (CIC-DDoS)
+            feature_extractor: Trình trích xuất đặc trưng cho mô hình chính
+            notification_callback: Callback khi phát hiện tấn công
+            packet_queue: Hàng đợi gói tin
+            detection_threshold: Ngưỡng phát hiện
+            check_interval: Khoảng thời gian kiểm tra (giây)
+            batch_size: Kích thước lô xử lý
+            config: Cấu hình hệ thống
+            label_encoder: Bộ mã hóa nhãn cho mô hình chính
+            prevention_engine: Engine ngăn chặn
+            secondary_model: Mô hình phụ (Suricata)
+            secondary_feature_extractor: Trình trích xuất đặc trưng cho mô hình phụ
+            secondary_label_encoder: Bộ mã hóa nhãn cho mô hình phụ
+        """
         self.model = model
         self.feature_extractor = feature_extractor
-        self.running = False
-        self.is_running = False
         self.notification_callback = notification_callback
         self.packet_queue = packet_queue
         self.detection_threshold = detection_threshold
         self.check_interval = check_interval
         self.batch_size = batch_size
-        self.logger = logging.getLogger("DetectionEngine")
-
-        self.attack_log = {}
-        self.detection_thread = None
+        self.config = config
+        self.label_encoder = label_encoder
         self.prevention_engine = prevention_engine
+        
+        # Các thuộc tính cho mô hình phụ
+        self.secondary_model = secondary_model
+        self.secondary_feature_extractor = secondary_feature_extractor
+        self.secondary_label_encoder = secondary_label_encoder
+        
+        # Khởi tạo các thông tin mô hình
+        models = []
+        feature_extractors = []
+        
+        # Thêm mô hình chính
+        primary_model_info = {
+            'model': model,
+            'label_encoder': label_encoder,
+            'model_type': 'cicddos',
+            'label_mapping': {i: c for i, c in enumerate(label_encoder.classes_)} if label_encoder else {}
+        }
+        models.append(primary_model_info)
+        feature_extractors.append(feature_extractor)
+        
+        # Thêm mô hình phụ nếu có
+        if secondary_model is not None:
+            secondary_model_info = {
+                'model': secondary_model,
+                'label_encoder': secondary_label_encoder,
+                'model_type': 'suricata',
+                'label_mapping': {0: 'DDoS'} if secondary_label_encoder is None else {i: c for i, c in enumerate(secondary_label_encoder.classes_)}
+            }
+            models.append(secondary_model_info)
+            feature_extractors.append(secondary_feature_extractor)
+        
+        # Khởi tạo hệ thống phân loại
+        self.classification_system = ClassificationSystem(models, config)
+        self.feature_extractors = feature_extractors
+        
+        # Thông tin về phương pháp kết hợp mô hình
+        self.has_secondary_model = secondary_model is not None
+        
+        # Danh sách IP whitelist để tránh false positive
+        self.whitelist_ip = set()
+        self.whitelist_port = set()
+        
+        # Nếu có cấu hình whitelist từ file config
+        if config and config.has_section('Prevention'):
+            if config.has_option('Prevention', 'whitelist'):
+                whitelist_str = config.get('Prevention', 'whitelist')
+                self.whitelist_ip = set([ip.strip() for ip in whitelist_str.split(',')])
+        
+        if config and config.has_section('Network'):
+            if config.has_option('Network', 'whitelist_ports'):
+                ports_str = config.get('Network', 'whitelist_ports')
+                self.whitelist_port = set([int(port.strip()) for port in ports_str.split(',')])
+        
+        # Thread và trạng thái
+        self.running = False
+        self.is_running = False
+        self.detection_thread = None
+        
+        # Thống kê
+        self.total_flows_analyzed = 0
+        self.total_attacks_detected = 0
         self.processing_times = []
-        self.detection_counts = {'total_flows': 0, 'attack_flows': 0, 'last_reset_time': time.time()}
-        if label_encoder is not None:
-            self.attack_types = {i: name for i, name in enumerate(label_encoder.classes_)}
-        else:
-            self.attack_types = {}
-
-        # === Bổ sung: load whitelist IP/port từ config ===
-        self.whitelist_ip, self.whitelist_port = self.load_whitelist_from_config(config)
-
-    def load_whitelist_from_config(self, config):
-        if config is None:
-            return set(), set()
-        ip_list = config.get('Detection', 'whitelist_ip', fallback='').split(',')
-        port_list = config.get('Detection', 'whitelist_port', fallback='').split(',')
-        ip_list = [x.strip() for x in ip_list if x.strip()]
-        port_list = [int(x.strip()) for x in port_list if x.strip() and x.strip().isdigit()]
-        return set(ip_list), set(port_list)
-
+        self.start_time = time.time()
+        
+        # Logging
+        self.logger = logging.getLogger("ddos_detection_system.core.detection_engine")
+        self.logger.info(f"Engine phát hiện DDoS đã khởi tạo với {len(models)} mô hình")
+    
     def start_detection(self):
         """Bắt đầu engine phát hiện trong một thread riêng biệt."""
         self.running = True
@@ -54,351 +119,298 @@ class DetectionEngine:
         self.detection_thread = threading.Thread(target=self._detection_loop)
         self.detection_thread.daemon = True
         self.detection_thread.start()
-        print("Engine phát hiện DDoS đã bắt đầu")
+        self.logger.info("Engine phát hiện DDoS đã bắt đầu")
     
     def stop_detection(self):
         """Dừng engine phát hiện."""
         self.running = False
+        if self.detection_thread and self.detection_thread.is_alive():
+            self.detection_thread.join(timeout=5.0)
         self.is_running = False
-        if self.detection_thread:
-            self.detection_thread.join(timeout=2.0)
-        print("Engine phát hiện DDoS đã dừng")
-
-    def is_legitimate_service(self, src_ip, dst_ip, src_port, dst_port, protocol, flow=None):
-        # Check whitelist IP/port trước tiên
-        if src_ip in self.whitelist_ip or dst_ip in self.whitelist_ip:
-            return True, "Whitelist IP"
-        if src_port and int(src_port) in self.whitelist_port:
-            if protocol == "TCP" and flow is not None:
-                syn_rate = flow.get('SYN Flag Rate', 0)
-                ack_rate = flow.get('ACK Flag Rate', 0)
-                # Nếu là SYN Flood thì KHÔNG skip (để alert)
-                if syn_rate > 0.8 and ack_rate < 0.2:
-                    return False, ""
-                if flow.get('ACK Flood Indicator', 0) == 1:
-                    return False, ""
-            # Nếu là UDP Flood thì KHÔNG skip (để alert)
-            if protocol == "UDP" and flow is not None:
-                if flow.get('UDP Flood Indicator', 0) == 1:
-                    return False, ""
-            return True, "Whitelist Port"
-
-        if dst_port and int(dst_port) in self.whitelist_port:
-            if protocol == "TCP" and flow is not None:
-                syn_rate = flow.get('SYN Flag Rate', 0)
-                ack_rate = flow.get('ACK Flag Rate', 0)
-                if syn_rate > 0.8 and ack_rate < 0.2:
-                    return False, ""
-                if flow.get('ACK Flood Indicator', 0) == 1:
-                    return False, ""
-            if protocol == "UDP" and flow is not None:
-                if flow.get('UDP Flood Indicator', 0) == 1:
-                    return False, ""
-            return True, "Whitelist Port"
-
-        # Các pattern IP Google, Youtube, Facebook, CDN lớn
-        big_cdn_patterns = [
-            "142.250.", "172.217.", "74.125.", "216.58.",    # Google/Youtube
-            "52.222.", "108.175.", "192.173.", "198.38.",    # Netflix
-            "31.13.", "157.240.", "104.244.",                # Facebook
-            "13.35.", "35.186.",                             # AWS/GCP
-            "203.113.", "8.8.8."                             # VNPT, Google DNS
-        ]
-        if any(dst_ip.startswith(pat) for pat in big_cdn_patterns):
-            return True, "BigCDN/Streaming"
-
-        # Dải IP local network
-        local_patterns = ["192.168.", "10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31."]
-        if any(src_ip.startswith(pat) for pat in local_patterns):
-            return True, "Local Network"
-        if any(dst_ip.startswith(pat) for pat in local_patterns):
-            return True, "Local Network"
-
-        # Port web phổ biến (ngay cả khi không nằm trong whitelist)
-        if str(dst_port) in ["80", "443", "8080", "1935", "33000", "33001"]:
-            return True, "Web/Streaming Port"
-
-        # Có thể mở rộng thêm logic nhận biết các service khác ở đây
-        return False, ""
+        self.logger.info("Engine phát hiện DDoS đã dừng")
     
-    def _detection_loop(self):
-        while self.running:
-            try:
-                flows, flow_keys = [], []
-                for _ in range(self.batch_size):
-                    try:
-                        flow_data = self.packet_queue.get(block=True, timeout=0.1)
-                        flow_keys.append(flow_data.get('Flow Key', 'unknown'))
-                        flows.append(flow_data)
-                        self.packet_queue.task_done()
-                    except queue.Empty:
-                        break
-                if not flows:
-                    time.sleep(self.check_interval)
-                    continue
-
-                start_time = time.time()
-                self._process_flows(flows, flow_keys)
-                end_time = time.time()
-                self.processing_times.append(end_time - start_time)
-                if len(self.processing_times) > 100:
-                    self.processing_times.pop(0)
-
-                current_time = time.time()
-                if current_time - self.detection_counts['last_reset_time'] > 3600:
-                    self.detection_counts = {
-                        'total_flows': 0,
-                        'attack_flows': 0,
-                        'last_reset_time': current_time
-                    }
-                time.sleep(0.01)
-            except Exception as e:
-                print(f"Lỗi trong vòng lặp phát hiện: {e}")
-                time.sleep(1)
-    
-    def _process_flows(self, flows: List[Dict[str, Any]], flow_keys: List[str]):
-        if not flows:
-            return
-        features_list = [self.feature_extractor.extract_features(flow) for flow in flows]
-        X = self.feature_extractor.prepare_features_for_model(features_list)
-
-        try:
-            y_pred = self.model.predict(X)
-            y_prob = self.model.predict_proba(X)
-            self.detection_counts['total_flows'] += len(flows)
-            for i, (pred, probs, flow_key) in enumerate(zip(y_pred, y_prob, flow_keys)):
-                if pred == 0:
-                    continue  # Benign
-
-                attack_type = self.attack_types.get(pred, "Unknown")
-                attack_prob = probs[pred]
-
-                # ==== Tách src/dst/port từ flow_key ====
-                src_ip, dst_ip, src_port, dst_port = "", "", "", ""
-                if flow_key and '-' in flow_key:
-                    parts = flow_key.split('-')
-                    if ':' in parts[0]:
-                        src_ip, src_port = parts[0].split(':')
-                    if ':' in parts[1]:
-                        dst_ip, dst_port = parts[1].split(':')
-
-                # ==== Lấy protocol đúng kiểu string ====
-                protocol_num = flows[i].get('Protocol', 3)
-                protocol_map = {0: "TCP", 1: "UDP", 2: "ICMP", 3: "Unknown"}
-                try:
-                    protocol = protocol_map[int(protocol_num)]
-                except Exception:
-                    protocol = "Unknown"
-
-                # ========== 1. BỘ LỌC WHITELIST + DỊCH VỤ HỢP PHÁP ==========
-                is_legit, legit_reason = self.is_legitimate_service(
-                    src_ip, dst_ip, src_port, dst_port, protocol, flows[i]
-                )
-                if is_legit:
-                    self.logger.info(
-                        f"SKIP: {flow_key} ({legit_reason}) - attack_prob={attack_prob:.2f}, attack_type={attack_type}"
-                    )
-                    continue  # Không alert nếu là traffic hợp pháp!
-
-                # ========== 2. TĂNG THRESHOLD CẢNH BÁO CHO PORT/ATTACK CỤ THỂ ==========
-                attack_specific_threshold = self.detection_threshold
-                # Tăng ngưỡng cho UDP/Streaming/MSSQL
-                if attack_type in ["UDPLag"]:
-                    attack_specific_threshold = max(attack_specific_threshold, 0.9)
-                elif attack_type == "MSSQL" and not (src_port == "1433" or dst_port == "1433"):
-                    attack_specific_threshold = max(attack_specific_threshold, 0.92)
-                # Tăng ngưỡng nếu port phổ biến
-                if str(dst_port) in ["80", "443", "8080"]:
-                    attack_specific_threshold = max(attack_specific_threshold, 0.97)
-
-                # Thêm điều kiện với flow ít packet
-                packet_count = flows[i].get('Total Packets', 0)
-                if packet_count < 20 and attack_prob < 0.98:
-                    attack_specific_threshold = max(attack_specific_threshold, 0.9)
-
-                # Log debug
-                self.logger.debug(f"CHECK: {flow_key}, attack_type={attack_type}, prob={attack_prob:.4f}, threshold={attack_specific_threshold}")
-
-                #log feautures
-                self.logger.debug(f"Flow features: {flows[i]}")
-                # ========== 3. BÁO ĐỘNG NẾU QUA ĐƯỢC MỌI LỌC ==========
-                if attack_prob >= attack_specific_threshold:
-                    self.detection_counts['attack_flows'] += 1
-                    self._log_attack(flow_key, attack_type, attack_prob, flows[i])
-                    # Notification
-                    current_time = time.time()
-                    if (flow_key not in self.attack_log or
-                        current_time - self.attack_log[flow_key]['last_notification'] > 60):
-                        self.attack_log[flow_key]['last_notification'] = current_time
-                        notification_data = {
-                            'flow_key': flow_key,
-                            'attack_type': attack_type,
-                            'confidence': attack_prob,
-                            'timestamp': current_time,
-                            'details': flows[i],
-                            'threshold_applied': attack_specific_threshold,
-                            'service_detected': legit_reason
-                        }
-                        self.notification_callback(notification_data)
-        except Exception as e:
-            self.logger.error(f"Lỗi khi dự đoán: {e}")
-            print(f"Lỗi khi dự đoán: {e}")
-    
-    def _log_attack(self, flow_key: str, attack_type: str, confidence: float, details: Dict[str, Any]):
+    def is_legitimate_service(self, src_ip, dst_ip, src_port, dst_port, protocol):
         """
-        Ghi lại thông tin về cuộc tấn công phát hiện được.
+        Kiểm tra xem luồng có phải là dịch vụ hợp pháp không.
         
         Args:
-            flow_key: Khóa nhận diện luồng
-            attack_type: Loại tấn công DDoS
-            confidence: Độ tin cậy của dự đoán
-            details: Chi tiết về luồng bị tấn công
+            src_ip: Địa chỉ IP nguồn
+            dst_ip: Địa chỉ IP đích
+            src_port: Cổng nguồn
+            dst_port: Cổng đích
+            protocol: Giao thức
+            
+        Returns:
+            True nếu là dịch vụ hợp pháp, False nếu không
         """
-        current_time = time.time()
+        # Kiểm tra IP whitelist
+        if src_ip in self.whitelist_ip or dst_ip in self.whitelist_ip:
+            return True
         
-        if flow_key not in self.attack_log:
-            self.attack_log[flow_key] = {
-                'first_detected': current_time,
-                'last_detected': current_time,
+        # Kiểm tra port whitelist
+        if src_port in self.whitelist_port or dst_port in self.whitelist_port:
+            return True
+        
+        # Kiểm tra các dịch vụ streaming nếu có cấu hình
+        if hasattr(self, 'streaming_services') and hasattr(self, 'false_positive_threshold'):
+            # Triển khai logic nhận diện dịch vụ streaming ở đây nếu cần
+            pass
+        
+        return False
+    
+    def _detection_loop(self):
+        """Vòng lặp chính của engine phát hiện."""
+        while self.running:
+            try:
+                # Lấy số lượng flows cần xử lý
+                batch_size = min(self.batch_size, self.packet_queue.qsize())
+                
+                if batch_size > 0:
+                    flows = []
+                    flow_keys = []
+                    
+                    # Lấy batch_size flows từ hàng đợi
+                    for _ in range(batch_size):
+                        if not self.packet_queue.empty():
+                            flow_data = self.packet_queue.get()
+                            flow_key = flow_data.get('flow_key', 'unknown')
+                            flows.append(flow_data)
+                            flow_keys.append(flow_key)
+                    
+                    # Xử lý các flows
+                    if flows:
+                        self._process_flows(flows, flow_keys)
+                
+                # Ngủ một khoảng thời gian
+                time.sleep(self.check_interval)
+                
+            except Exception as e:
+                self.logger.error(f"Lỗi trong vòng lặp phát hiện: {e}", exc_info=True)
+    
+    def _process_flows(self, flows, flow_keys):
+        """
+        Xử lý một batch các luồng dữ liệu.
+        
+        Args:
+            flows: Danh sách dữ liệu luồng
+            flow_keys: Danh sách khóa luồng tương ứng
+        """
+        start_time = time.time()
+        
+        for i, flow in enumerate(flows):
+            flow_key = flow_keys[i]
+            
+            try:
+                # Kiểm tra whitelist trước khi phân tích
+                src_ip = flow.get('src_ip', '')
+                dst_ip = flow.get('dst_ip', '')
+                src_port = flow.get('src_port', 0)
+                dst_port = flow.get('dst_port', 0)
+                protocol = flow.get('protocol', '')
+                
+                if self.is_legitimate_service(src_ip, dst_ip, src_port, dst_port, protocol):
+                    self.logger.debug(f"Bỏ qua flow hợp pháp: {flow_key}")
+                    continue
+                
+                # Phân tích flow
+                is_attack, confidence, attack_type, _ = self.analyze_flow(flow)
+                
+                # Cập nhật thống kê
+                self.total_flows_analyzed += 1
+                
+                # Nếu là tấn công và vượt ngưỡng
+                if is_attack and confidence >= self.detection_threshold:
+                    self.total_attacks_detected += 1
+                    
+                    # Tạo thông tin chi tiết về tấn công
+                    attack_details = {
+                        'flow_rate': flow.get('flow_rate', 0),
+                        'packet_rate': flow.get('packet_rate', 0),
+                        'byte_rate': flow.get('byte_rate', 0),
+                        'packet_count': flow.get('packet_count', 0),
+                        'flow_duration': flow.get('flow_duration', 0),
+                        'protocol': protocol
+                    }
+                    
+                    # Log tấn công
+                    self._log_attack(flow_key, attack_type, confidence, attack_details)
+                    
+                    # Tạo thông tin tấn công để thông báo
+                    attack_info = {
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'flow_key': flow_key,
+                        'src_ip': src_ip,
+                        'dst_ip': dst_ip,
+                        'src_port': src_port,
+                        'dst_port': dst_port,
+                        'protocol': protocol,
+                        'attack_type': attack_type,
+                        'confidence': confidence,
+                        'details': attack_details
+                    }
+                    
+                    # Gửi thông báo tấn công
+                    if self.notification_callback:
+                        self.notification_callback(attack_info)
+                    
+                    # Tự động chặn nếu cấu hình cho phép
+                    if self.prevention_engine and self.config:
+                        try:
+                            auto_block = self.config.getboolean('Prevention', 'auto_block', fallback=False)
+                            if auto_block:
+                                self.prevention_engine.block_ip(src_ip, attack_type, confidence)
+                        except Exception as block_error:
+                            self.logger.error(f"Lỗi khi chặn IP: {block_error}")
+                
+            except Exception as e:
+                self.logger.error(f"Lỗi khi xử lý flow {flow_key}: {e}", exc_info=True)
+        
+        # Tính thời gian xử lý
+        processing_time = (time.time() - start_time) * 1000  # ms
+        self.processing_times.append(processing_time / max(1, len(flows)))
+        
+        # Giới hạn số lượng thời gian xử lý lưu trữ
+        if len(self.processing_times) > 100:
+            self.processing_times = self.processing_times[-100:]
+    
+    def analyze_flow(self, flow) -> Tuple[bool, float, str, Optional[int]]:
+        """
+        Phân tích một luồng dữ liệu để phát hiện tấn công.
+        
+        Args:
+            flow: Dữ liệu luồng
+            
+        Returns:
+            Tuple (is_attack, confidence, attack_type, attack_class)
+        """
+        try:
+            # Thử suy luận các đặc trưng thiếu trước khi phân tích
+            if hasattr(self.feature_extractor, 'infer_features'):
+                flow = self.feature_extractor.infer_features(flow)
+            
+            # Sử dụng hệ thống phân loại
+            is_attack, confidence, attack_type, details = self.classification_system.classify_flow(
+                flow, self.feature_extractors
+            )
+            
+            # Kiểm tra và ghi log nếu có đặc trưng bị thiếu
+            if 'missing_features' in details:
+                self.logger.warning(f"Đặc trưng thiếu khi phân tích: {details['missing_features']}")
+                
+            # Sử dụng hệ thống phân loại
+            is_attack, confidence, attack_type, details = self.classification_system.classify_flow(
+                flow, self.feature_extractors
+            )
+            
+            # Lưu thêm thông tin vào chi tiết để sử dụng sau này
+            flow_key = flow.get('flow_key', 'unknown')
+            src_ip = flow.get('src_ip', '')
+            dst_ip = flow.get('dst_ip', '')
+            
+            # Thêm mô tả loại tấn công
+            attack_description = self.classification_system.get_attack_type_description(attack_type)
+            confidence_level = self.classification_system.get_detection_confidence_level(confidence)
+            
+            # Log chi tiết hơn về kết quả phân loại
+            if is_attack:
+                self.logger.info(
+                    f"Phát hiện tấn công {attack_type} (tin cậy: {confidence:.4f}, mức: {confidence_level}) "
+                    f"từ {src_ip} đến {dst_ip}"
+                )
+                if self.config and self.config.getboolean('Advanced', 'detailed_traffic_logging', fallback=False):
+                    self.logger.debug(f"Chi tiết phân loại: {details}")
+            
+            # Trả về kết quả phân tích
+            return is_attack, confidence, attack_type, None  # Loại bỏ attack_class vì không còn cần thiết
+            
+        except Exception as e:
+            self.logger.error(f"Lỗi khi phân tích luồng: {e}", exc_info=True)
+            return False, 0.0, "Error", None
+    
+    def _log_attack(self, flow_key, attack_type, confidence, details):
+        """
+        Ghi log tấn công.
+        
+        Args:
+            flow_key: Khóa luồng
+            attack_type: Loại tấn công
+            confidence: Độ tin cậy
+            details: Chi tiết bổ sung
+        """
+        # Tách thông tin từ flow_key
+        src_ip = dst_ip = src_port = dst_port = "Unknown"
+        if '-' in flow_key:
+            parts = flow_key.split('-')
+            if ':' in parts[0]:
+                src_parts = parts[0].split(':')
+                src_ip = src_parts[0]
+                src_port = src_parts[1] if len(src_parts) > 1 else "Unknown"
+            if ':' in parts[1]:
+                dst_parts = parts[1].split(':')
+                dst_ip = dst_parts[0]
+                dst_port = dst_parts[1] if len(dst_parts) > 1 else "Unknown"
+        
+        # Log thông tin chi tiết
+        self.logger.warning(
+            f"Phát hiện tấn công: {attack_type} từ {src_ip}:{src_port} đến {dst_ip}:{dst_port} "
+            f"(độ tin cậy: {confidence:.2f})"
+        )
+        
+        # Ghi log sử dụng DDoSLogger nếu có
+        try:
+            from utils.ddos_logger import log_attack
+            
+            attack_info = {
+                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'src_ip': src_ip,
+                'dst_ip': dst_ip,
+                'src_port': src_port,
+                'dst_port': dst_port,
+                'protocol': details.get('protocol', 'Unknown'),
                 'attack_type': attack_type,
-                'detection_count': 1,
-                'avg_confidence': confidence,
-                'last_notification': 0,  # Chưa có thông báo nào
+                'confidence': confidence,
+                'blocked': False,
                 'details': details
             }
-        else:
-            log_entry = self.attack_log[flow_key]
-            log_entry['last_detected'] = current_time
-            log_entry['detection_count'] += 1
-            # Cập nhật độ tin cậy trung bình
-            log_entry['avg_confidence'] = ((log_entry['avg_confidence'] * (log_entry['detection_count'] - 1)) 
-                                          + confidence) / log_entry['detection_count']
-            log_entry['details'] = details  # Cập nhật thông tin chi tiết mới nhất
+            
+            log_attack(attack_info)
+            
+        except ImportError:
+            self.logger.debug("Không thể import DDoSLogger")
     
-    def get_detection_stats(self) -> Dict[str, Any]:
+    def get_detection_stats(self):
         """
-        Trả về thống kê hiện tại về việc phát hiện.
+        Lấy thống kê về engine phát hiện.
         
         Returns:
-            Dict chứa các thống kê phát hiện
+            Dict chứa thống kê
         """
-        avg_processing_time = sum(self.processing_times) / len(self.processing_times) if self.processing_times else 0
+        # Tính thời gian xử lý trung bình
+        avg_processing_time = 0
+        if self.processing_times:
+            avg_processing_time = sum(self.processing_times) / len(self.processing_times)
         
-        # Lọc các cuộc tấn công đang diễn ra (phát hiện trong 5 phút qua)
-        current_time = time.time()
-        active_attacks = {k: v for k, v in self.attack_log.items() 
-                          if current_time - v['last_detected'] < 300}
+        # Tính tỷ lệ phát hiện
+        detection_rate = 0
+        if self.total_flows_analyzed > 0:
+            detection_rate = self.total_attacks_detected / self.total_flows_analyzed
         
-        # Phân loại các cuộc tấn công theo loại
-        attack_types_count = {}
-        for attack in active_attacks.values():
-            attack_type = attack['attack_type']
-            if attack_type in attack_types_count:
-                attack_types_count[attack_type] += 1
-            else:
-                attack_types_count[attack_type] = 1
+        # Xác định trạng thái phát hiện
+        detection_status = "Active" if self.is_running else "Inactive"
+        
+        # Xác định trạng thái ngăn chặn
+        prevention_status = "Unknown"
+        if self.prevention_engine:
+            prevention_status = "Active" if self.prevention_engine.running else "Inactive"
         
         return {
-            'total_flows_analyzed': self.detection_counts['total_flows'],
-            'total_attacks_detected': self.detection_counts['attack_flows'],
-            'active_attack_count': len(active_attacks),
-            'attack_types_distribution': attack_types_count,
-            'avg_processing_time_ms': avg_processing_time * 1000,
-            'detection_rate': self.detection_counts['attack_flows'] / self.detection_counts['total_flows'] 
-                              if self.detection_counts['total_flows'] > 0 else 0
+            'total_flows_analyzed': self.total_flows_analyzed,
+            'total_attacks_detected': self.total_attacks_detected,
+            'detection_rate': detection_rate,
+            'avg_processing_time_ms': avg_processing_time,
+            'detection_status': detection_status,
+            'prevention_status': prevention_status,
+            'uptime': time.time() - self.start_time,
+            'models_count': len(self.feature_extractors),
+            'has_secondary_model': self.has_secondary_model
         }
-    
-    def analyze_flow(self, flow_features: Dict[str, Any]) -> Dict[str, Any]:
-        """Phân tích luồng mạng để phát hiện tấn công DDoS."""
-        
-        # Chuẩn bị đặc trưng cho mô hình
-        features_list = [flow_features]
-        X = self.feature_extractor.prepare_features_for_model(features_list)
-        
-        # Dự đoán
-        prediction = self.model.predict(X)[0]
-        probabilities = self.model.predict_proba(X)[0]
-        
-        # Xác định loại tấn công cụ thể
-        attack_type = "Normal"
-        confidence = float(probabilities[int(prediction)])
-        
-        # Tạo kết quả phân tích
-        result = {
-            'flow_key': flow_features.get('Flow Key', ''),
-            'source_ip': flow_features.get('Source IP', ''),
-            'is_attack': bool(prediction),
-            'confidence': confidence,
-            'attack_type': attack_type,
-            'flow_features': flow_features,
-            'timestamp': time.time()
-        }
-        
-        # Nếu hỗ trợ phân tích streaming và có đặc trưng streaming
-        if hasattr(self, 'streaming_services') and hasattr(self, 'false_positive_threshold'):
-            # Kiểm tra xem có phải là dịch vụ streaming được cho phép không
-            is_likely_streaming = flow_features.get('Likely Streaming', 0) == 1
-            is_streaming_port = flow_features.get('Streaming Service Port', 0) == 1
-            
-            # Nếu phát hiện là streaming và confidence thấp hơn ngưỡng false positive
-            if is_likely_streaming and is_streaming_port and confidence < self.false_positive_threshold:
-                result['is_attack'] = False
-                result['attack_type'] = "Normal (Streaming)"
-                return result
-        
-        # Đánh dấu loại tấn công cụ thể nếu là tấn công
-        if result['is_attack']:
-            protocol = flow_features.get('Protocol', 3)
-            
-            # Xác định loại tấn công
-            if protocol == 0:  # TCP
-                if flow_features.get('SYN Flag Rate', 0) > 0.8:
-                    attack_type = "SYN Flood"
-                
-            elif protocol == 1:  # UDP
-                if flow_features.get('UDP Flood Indicator', 0) == 1:
-                    attack_type = "UDP Flood"
-                
-            # Phát hiện MSSQL Attack nếu có đặc trưng liên quan
-            mssql_port = flow_features.get('MSSQL Port Indicator', 0) == 1
-            dst_port = flow_features.get('Destination Port', 0)
-            src_port = flow_features.get('Source Port', 0)
-            ssl_pattern = (dst_port == 443 or src_port == 443) and protocol == 'TCP'
-            high_packet_rate = flow_features.get('Packet Rate', 0) > 1000
-            
-            if mssql_port:
-                # Nếu là cổng MSSQL thực sự, có thể là tấn công
-                if high_packet_rate:
-                    attack_type = "MSSQL Attack"
-            else:
-                # Nếu không phải cổng MSSQL, cần thận trọng hơn khi phân loại
-                # Tránh nhầm lẫn với SSL/TLS
-                if ssl_pattern and flow_features.get('Packet Length Mean', 0) > 800:
-                    # Gói lớn qua SSL/TLS thường là video/streaming
-                    result['is_attack'] = False
-                    result['attack_type'] = "Normal (HTTPS Traffic)"
-        
-        result['attack_type'] = attack_type
-        
-        # Xử lý đặc biệt cho lưu lượng HTTPS
-        if flow_features.get('HTTPS Traffic', 0) == 1:
-            # Lưu lượng HTTPS đã được xác nhận thường không phải là tấn công
-            if result['is_attack'] and confidence < 0.9:
-                # Chỉ ghi đè kết quả nếu độ tin cậy không quá cao
-                result['is_attack'] = False
-                result['attack_type'] = "Normal (HTTPS Traffic)"
-                result['original_confidence'] = confidence
-                result['confidence'] = 0.2  # Giảm độ tin cậy là tấn công
-                return result
-        
-        # Xử lý MSSQL Attack
-        if result['is_attack'] and flow_features.get('MSSQL Port Indicator', 0) == 1:
-            attack_type = "MSSQL Attack"
-            
-            # Sử dụng thêm xác suất tấn công nếu có
-            if 'MSSQL Attack Probability' in flow_features:
-                # Điều chỉnh độ tin cậy dựa trên phân tích sâu hơn
-                mssql_attack_prob = flow_features['MSSQL Attack Probability']
-                result['confidence'] = (result['confidence'] + mssql_attack_prob) / 2
-        
-        return result
