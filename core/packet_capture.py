@@ -47,96 +47,253 @@ class PacketCapture:
         except Exception as e:
             print(f"Lỗi khi bắt gói tin: {e}")
 
-    def _process_packet(self, pkt):
+    def _process_packet(self, packet):
+        """
+        Xử lý một gói tin và thêm nó vào luồng tương ứng.
+        
+        Args:
+            packet: Gói tin Scapy để xử lý
+        """
         try:
-            if hasattr(pkt, 'udp'): proto = 'UDP'
-            elif hasattr(pkt, 'tcp'): proto = 'TCP'
-            elif hasattr(pkt, 'icmp'): proto = 'ICMP'
-            else: proto = 'Unknown'
-
-            # Tính toán các đặc trưng bổ sung
-            self._calculate_additional_features(flow)
+            # Kiểm tra xem gói tin có chứa IP layer không
+            if 'IP' not in packet:
+                return
             
-            # Thêm các đặc trưng cần thiết cho mô hình CIC-DDoS
-            self._add_cicddos_features(flow)
+            # Trích xuất thông tin IP
+            ip_layer = packet['IP']
+            src_ip = ip_layer.src
+            dst_ip = ip_layer.dst
+            protocol = None
             
-            # Thêm các đặc trưng cần thiết cho mô hình Suricata
-            self._add_suricata_features(flow)
-
-            timestamp = float(pkt.sniff_time.timestamp())
-            length = int(pkt.length)
-            if not hasattr(pkt, 'ip'):
-                return None
-            src_ip, dst_ip = pkt.ip.src, pkt.ip.dst
-
-            src_port = dst_port = 0
-            if proto == "TCP" and hasattr(pkt, 'tcp'):
-                src_port, dst_port = pkt.tcp.srcport, pkt.tcp.dstport
-            elif proto == "UDP" and hasattr(pkt, 'udp'):
-                src_port, dst_port = pkt.udp.srcport, pkt.udp.dstport
-
-            flow_key = f"{src_ip}-{dst_ip}:{dst_port}"
-
-            with self.lock:
-                flow = self.flow_dict.setdefault(flow_key, {
-                    "Packet Lengths": [], "Packet Times": [],
-                    "SYN Flag Count": 0, "FIN Flag Count": 0, "RST Flag Count": 0,
-                    "PSH Flag Count": 0, "ACK Flag Count": 0, "URG Flag Count": 0,
-                    "Flow Start Time": 0, "Protocol": proto, "Source IP": src_ip,
-                    "Destination IP": dst_ip, "Source Port": int(src_port) if src_port else 0,
-                    "Destination Port": int(dst_port) if dst_port else 0,
-                })
-                if flow["Flow Start Time"] == 0:
-                    flow["Flow Start Time"] = timestamp
-                flow["Packet Lengths"].append(length)
-                flow["Packet Times"].append(timestamp)
-
-                if proto == "TCP" and hasattr(pkt, 'tcp') and hasattr(pkt.tcp, "flags"):
-                    try:
-                        flags = int(pkt.tcp.flags, 16)
-                        if flags & 0x02: flow["SYN Flag Count"] += 1  # SYN
-                        if flags & 0x01: flow["FIN Flag Count"] += 1  # FIN
-                        if flags & 0x04: flow["RST Flag Count"] += 1  # RST
-                        if flags & 0x08: flow["PSH Flag Count"] += 1  # PSH
-                        if flags & 0x10: flow["ACK Flag Count"] += 1  # ACK
-                        if flags & 0x20: flow["URG Flag Count"] += 1  # URG
-                    except Exception as e:
-                        print(f"[WARN] Không parse được flags: {e}")
-
-                if len(flow["Packet Lengths"]) >= self.max_packets_per_flow:
-                    flow_summary = dict(flow)
-                    flow_summary["Flow Key"] = flow_key
-                    flow_summary["Flow Duration"] = (
-                        flow["Packet Times"][-1] - flow["Packet Times"][0] if len(flow["Packet Times"]) > 1 else 0
-                    )
-                    flow_summary["Total Bytes"] = sum(flow["Packet Lengths"])
-                    flow_summary["Total Packets"] = len(flow["Packet Lengths"])
-                    duration = flow_summary["Flow Duration"]
-                    flow_summary["Packet Rate"] = flow_summary["Total Packets"] / duration if duration > 0 else 0
-                    flow_summary["Byte Rate"] = flow_summary["Total Bytes"] / duration if duration > 0 else 0
-
-                    # Gán nhãn đơn giản
-                    proto_num = {'ICMP': 1, 'UDP': 17, 'TCP': 6}.get(proto, 0)
-                    flow_summary["Protocol"] = proto_num
-                    if proto == 'TCP' and flow["SYN Flag Count"] > 10 and flow["ACK Flag Count"] == 0:
-                        flow_summary["Label"] = "Syn"
-                    elif proto == 'TCP' and flow["ACK Flag Count"] > 20 and flow["SYN Flag Count"] == 0:
-                        flow_summary["Label"] = "ACK"
-                    elif proto == 'UDP':
-                        flow_summary["Label"] = "UDP"
-                    elif proto == 'ICMP':
-                        flow_summary["Label"] = "ICMP"
-                    else:
-                        flow_summary["Label"] = "Benign"
-
-                    del self.flow_dict[flow_key]
-                    return flow_summary
-
-            print(f"Captured packet: proto={proto}, src={src_ip}, dst={dst_ip}, len={length}")
-
+            # Trích xuất thông tin giao thức
+            if 'TCP' in packet:
+                protocol = 'tcp'
+                tcp_layer = packet['TCP']
+                src_port = tcp_layer.sport
+                dst_port = tcp_layer.dport
+                flow_key = f"{src_ip}:{src_port}-{dst_ip}:{dst_port}-tcp"
+                
+                # Xử lý gói TCP
+                self._process_tcp_packet(packet, flow_key)
+                
+            elif 'UDP' in packet:
+                protocol = 'udp'
+                udp_layer = packet['UDP']
+                src_port = udp_layer.sport
+                dst_port = udp_layer.dport
+                flow_key = f"{src_ip}:{src_port}-{dst_ip}:{dst_port}-udp"
+                
+                # Xử lý gói UDP
+                self._process_udp_packet(packet, flow_key)
+                
+            elif 'ICMP' in packet:
+                protocol = 'icmp'
+                # ICMP không có port, sử dụng 0 để thống nhất
+                src_port = 0
+                dst_port = 0
+                flow_key = f"{src_ip}:0-{dst_ip}:0-icmp"
+                
+                # Xử lý gói ICMP
+                self._process_icmp_packet(packet, flow_key)
+                
+            else:
+                # Các giao thức khác không được hỗ trợ
+                return
+            
+            # Lấy thời gian gói tin
+            timestamp = packet.time
+            
+            # Kiểm tra xem luồng đã tồn tại chưa
+            if flow_key not in self.flow_table:
+                # Tạo mới luồng
+                flow = {
+                    'flow_key': flow_key,
+                    'start_time': timestamp,
+                    'last_update': timestamp,
+                    'packet_count': 1,
+                    'byte_count': len(packet),
+                    'src_ip': src_ip,
+                    'dst_ip': dst_ip,
+                    'src_port': src_port,
+                    'dst_port': dst_port,
+                    'protocol': protocol,
+                    'fwd_bytes': len(packet),
+                    'bwd_bytes': 0,
+                    'fwd_packets': 1,
+                    'bwd_packets': 0,
+                    'packet_lengths': {'forward': [len(packet)], 'backward': []},
+                    'tcp_flags': {},
+                    'flow_duration': 0,
+                    'flow_rate': 0,
+                    'packet_rate': 0,
+                    'byte_rate': 0
+                }
+                
+                # Lưu thông tin cửa sổ TCP nếu là gói TCP
+                if protocol == 'tcp' and hasattr(packet['TCP'], 'window'):
+                    flow['init_win_bytes_forward'] = packet['TCP'].window
+                    flow['init_win_bytes_backward'] = 0
+                else:
+                    flow['init_win_bytes_forward'] = 0
+                    flow['init_win_bytes_backward'] = 0
+                
+                # Thiết lập các giá trị cho Suricata features
+                flow['bytes_toserver'] = flow['fwd_bytes']
+                flow['bytes_toclient'] = flow['bwd_bytes']
+                flow['pkts_toserver'] = flow['fwd_packets']
+                flow['pkts_toclient'] = flow['bwd_packets']
+                
+                # Thêm các đặc trưng cần thiết cho mô hình CIC-DDoS
+                self._add_cicddos_features(flow)
+                
+                # Thêm các đặc trưng cần thiết cho mô hình Suricata
+                self._add_suricata_features(flow)
+                
+                # Lưu luồng vào bảng
+                self.flow_table[flow_key] = flow
+                
+            else:
+                # Cập nhật luồng đã tồn tại
+                flow = self.flow_table[flow_key]
+                flow['last_update'] = timestamp
+                flow['packet_count'] += 1
+                flow['byte_count'] += len(packet)
+                
+                # Xác định hướng gói tin
+                is_forward = (src_ip == flow['src_ip'] and src_port == flow['src_port'])
+                
+                if is_forward:
+                    flow['fwd_bytes'] += len(packet)
+                    flow['fwd_packets'] += 1
+                    flow['bytes_toserver'] = flow['fwd_bytes']
+                    flow['pkts_toserver'] = flow['fwd_packets']
+                    
+                    if 'packet_lengths' not in flow:
+                        flow['packet_lengths'] = {'forward': [], 'backward': []}
+                    if 'forward' not in flow['packet_lengths']:
+                        flow['packet_lengths']['forward'] = []
+                    
+                    flow['packet_lengths']['forward'].append(len(packet))
+                else:
+                    flow['bwd_bytes'] += len(packet)
+                    flow['bwd_packets'] += 1
+                    flow['bytes_toclient'] = flow['bwd_bytes']
+                    flow['pkts_toclient'] = flow['bwd_packets']
+                    
+                    if 'packet_lengths' not in flow:
+                        flow['packet_lengths'] = {'forward': [], 'backward': []}
+                    if 'backward' not in flow['packet_lengths']:
+                        flow['packet_lengths']['backward'] = []
+                    
+                    flow['packet_lengths']['backward'].append(len(packet))
+                    
+                    # Lưu thông tin về cửa sổ ngược nếu đây là gói TCP
+                    if protocol == 'tcp' and hasattr(packet['TCP'], 'window') and flow.get('init_win_bytes_backward', 0) == 0:
+                        flow['init_win_bytes_backward'] = packet['TCP'].window
+                
+                # Cập nhật thông tin TCP flags nếu là gói TCP
+                if protocol == 'tcp' and hasattr(packet['TCP'], 'flags'):
+                    flags = packet['TCP'].flags
+                    
+                    if 'tcp_flags' not in flow:
+                        flow['tcp_flags'] = {}
+                    
+                    # ACK flag
+                    if flags & 0x10:  # 0x10 là bit ACK
+                        flow['tcp_flags']['ACK'] = flow['tcp_flags'].get('ACK', 0) + 1
+                    
+                    # URG flag
+                    if flags & 0x20:  # 0x20 là bit URG
+                        flow['tcp_flags']['URG'] = flow['tcp_flags'].get('URG', 0) + 1
+                    
+                    # Các flag khác nếu cần
+                    if flags & 0x02:  # SYN flag
+                        flow['tcp_flags']['SYN'] = flow['tcp_flags'].get('SYN', 0) + 1
+                    
+                    if flags & 0x01:  # FIN flag
+                        flow['tcp_flags']['FIN'] = flow['tcp_flags'].get('FIN', 0) + 1
+                    
+                    if flags & 0x04:  # RST flag
+                        flow['tcp_flags']['RST'] = flow['tcp_flags'].get('RST', 0) + 1
+                    
+                    if flags & 0x08:  # PSH flag
+                        flow['tcp_flags']['PSH'] = flow['tcp_flags'].get('PSH', 0) + 1
+                
+                # Tính toán các đặc trưng liên quan đến thời gian và tốc độ
+                flow_duration = timestamp - flow['start_time']
+                if flow_duration > 0:
+                    flow['flow_duration'] = flow_duration
+                    flow['flow_rate'] = 1.0 / flow_duration
+                    flow['packet_rate'] = flow['packet_count'] / flow_duration
+                    flow['byte_rate'] = flow['byte_count'] / flow_duration
+                
+                # Thêm các đặc trưng cần thiết cho mô hình CIC-DDoS
+                self._add_cicddos_features(flow)
+                
+                # Thêm các đặc trưng cần thiết cho mô hình Suricata
+                self._add_suricata_features(flow)
+                
+                # Cập nhật luồng vào bảng
+                self.flow_table[flow_key] = flow
+            
+            # Kiểm tra nếu đã đủ số lượng gói tin để phân tích luồng
+            if self.flow_packet_threshold > 0 and flow['packet_count'] >= self.flow_packet_threshold:
+                # Gửi luồng đến hàng đợi để phân tích
+                self._send_flow_to_queue(flow)
+                
+                # Đặt lại bộ đếm gói tin
+                flow['packet_count'] = 0
+                
+                # Ghi log nếu debug
+                self.logger.debug(f"Đã gửi luồng {flow_key} để phân tích")
+        
         except Exception as e:
-            print(f"[Capture] Lỗi khi process_packet: {e}")
-        return None
+            self.logger.error(f"Lỗi khi process_packet: {e}", exc_info=True)
+
+    def _process_tcp_packet(self, packet, flow_key):
+        """
+        Xử lý một gói tin TCP và cập nhật thông tin cho luồng tương ứng.
+        
+        Args:
+            packet: Gói tin TCP
+            flow_key: Khóa của luồng
+        """
+        try:
+            # Phương thức này sẽ được gọi từ _process_packet
+            # và các xử lý cụ thể cho TCP đã được thực hiện trong _process_packet
+            pass
+        except Exception as e:
+            self.logger.error(f"Lỗi khi xử lý gói TCP: {e}", exc_info=True)
+
+    def _process_udp_packet(self, packet, flow_key):
+        """
+        Xử lý một gói tin UDP và cập nhật thông tin cho luồng tương ứng.
+        
+        Args:
+            packet: Gói tin UDP
+            flow_key: Khóa của luồng
+        """
+        try:
+            # Phương thức này sẽ được gọi từ _process_packet
+            # và các xử lý cụ thể cho UDP đã được thực hiện trong _process_packet
+            pass
+        except Exception as e:
+            self.logger.error(f"Lỗi khi xử lý gói UDP: {e}", exc_info=True)
+
+    def _process_icmp_packet(self, packet, flow_key):
+        """
+        Xử lý một gói tin ICMP và cập nhật thông tin cho luồng tương ứng.
+        
+        Args:
+            packet: Gói tin ICMP
+            flow_key: Khóa của luồng
+        """
+        try:
+            # Xử lý đặc biệt cho ICMP nếu cần
+            # Hiện tại, các xử lý cơ bản đã được thực hiện trong _process_packet
+            pass
+        except Exception as e:
+            self.logger.error(f"Lỗi khi xử lý gói ICMP: {e}", exc_info=True)
 
     def _clean_old_flows(self, timeout=60):
         now = time.time()
@@ -167,7 +324,8 @@ class PacketCapture:
             flow['init_win_bytes_forward'] = 0
         
         # Tính toán Fwd Packet Length Std nếu chưa có
-        if len(flow['packet_lengths']['forward']) > 1:
+        if 'packet_lengths' in flow and 'forward' in flow['packet_lengths'] and len(flow['packet_lengths']['forward']) > 1:
+            import numpy as np
             flow['fwd_pkt_len_std'] = np.std(flow['packet_lengths']['forward'])
         else:
             flow['fwd_pkt_len_std'] = 0
@@ -202,9 +360,20 @@ class PacketCapture:
         flow['total_pkts'] = pkts_toserver + pkts_toclient
         
         # Tránh chia cho 0
-        flow['avg_bytes_per_pkt'] = flow['total_bytes'] / max(1, flow['total_pkts'])
-        flow['bytes_ratio'] = bytes_toserver / max(1, bytes_toclient) if bytes_toclient > 0 else bytes_toserver
-        flow['pkts_ratio'] = pkts_toserver / max(1, pkts_toclient) if pkts_toclient > 0 else pkts_toserver
+        if flow['total_pkts'] > 0:
+            flow['avg_bytes_per_pkt'] = flow['total_bytes'] / flow['total_pkts']
+        else:
+            flow['avg_bytes_per_pkt'] = 0
+            
+        if bytes_toclient > 0:
+            flow['bytes_ratio'] = bytes_toserver / bytes_toclient
+        else:
+            flow['bytes_ratio'] = bytes_toserver if bytes_toserver > 0 else 1
+            
+        if pkts_toclient > 0:
+            flow['pkts_ratio'] = pkts_toserver / pkts_toclient
+        else:
+            flow['pkts_ratio'] = pkts_toserver if pkts_toserver > 0 else 1
         
         # Kiểm tra cổng phổ biến
         src_port = flow.get('src_port', 0)
@@ -216,5 +385,3 @@ class PacketCapture:
         for proto in ['tcp', 'udp', 'ipv6-icmp', 'icmp']:
             flow[f'proto_{proto}'] = 1 if proto == protocol else 0
             flow[f'proto_{proto.upper()}'] = 1 if proto == protocol else 0
-
-    
