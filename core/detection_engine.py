@@ -158,6 +158,7 @@ class DetectionEngine:
         
         return False
     
+    # core/detection_engine.py
     def _detection_loop(self):
         """Vòng lặp chính của engine phát hiện."""
         while self.running:
@@ -166,6 +167,7 @@ class DetectionEngine:
                 batch_size = min(self.batch_size, self.packet_queue.qsize())
                 
                 if batch_size > 0:
+                    print(f"Xử lý {batch_size} luồng từ hàng đợi")
                     flows = []
                     flow_keys = []
                     
@@ -186,7 +188,6 @@ class DetectionEngine:
                 
             except Exception as e:
                 self.logger.error(f"Lỗi trong vòng lặp phát hiện: {e}", exc_info=True)
-    
     def _process_flows(self, flows, flow_keys):
         """
         Xử lý một batch các luồng dữ liệu.
@@ -196,6 +197,7 @@ class DetectionEngine:
             flow_keys: Danh sách khóa luồng tương ứng
         """
         start_time = time.time()
+        print(f"Bắt đầu xử lý {len(flows)} luồng")
         
         for i, flow in enumerate(flows):
             flow_key = flow_keys[i]
@@ -378,6 +380,7 @@ class DetectionEngine:
         except ImportError:
             self.logger.debug("Không thể import DDoSLogger")
     
+    # core/detection_engine.py
     def get_detection_stats(self):
         """
         Lấy thống kê về engine phát hiện.
@@ -403,14 +406,15 @@ class DetectionEngine:
         if self.prevention_engine:
             prevention_status = "Active" if self.prevention_engine.running else "Inactive"
         
-        return {
+        stats = {
             'total_flows_analyzed': self.total_flows_analyzed,
             'total_attacks_detected': self.total_attacks_detected,
             'detection_rate': detection_rate,
             'avg_processing_time_ms': avg_processing_time,
             'detection_status': detection_status,
             'prevention_status': prevention_status,
-            'uptime': time.time() - self.start_time,
-            'models_count': len(self.feature_extractors),
-            'has_secondary_model': self.has_secondary_model
+            'uptime': time.time() - self.start_time
         }
+        
+        print(f"Thống kê phát hiện: {stats}")
+        return stats

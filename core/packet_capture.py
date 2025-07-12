@@ -4,10 +4,13 @@ import time
 from typing import List, Dict, Any, Optional
 import numpy as np
 import pyshark
+import logging
 
 class PacketCapture:
     def __init__(self, interface: str, packet_queue: queue.Queue,
                  capture_filter: Optional[str] = None, buffer_size: int = 1000, max_packets_per_flow: int = 20):
+        
+        self.logger = logging.getLogger("ddos_detection_system.core.packet_capture")
         self.interface = interface
         self.packet_queue = packet_queue
         self.capture_filter = capture_filter
@@ -250,6 +253,24 @@ class PacketCapture:
         except Exception as e:
             self.logger.error(f"Lỗi khi process_packet: {e}", exc_info=True)
 
+    def _send_flow_to_queue(self, flow):
+        """
+        Gửi luồng đến hàng đợi để phân tích.
+        
+        Args:
+            flow: Luồng cần gửi
+        """
+        try:
+            # Tạo bản sao của luồng để tránh sửa đổi trong quá trình xử lý
+            flow_copy = flow.copy()
+            
+            # Thêm vào hàng đợi
+            self.packet_queue.put(flow_copy)
+            
+            print(f"Đã gửi luồng để phân tích: {flow['flow_key']}")
+        except Exception as e:
+            self.logger.error(f"Lỗi khi gửi luồng đến hàng đợi: {e}", exc_info=True)
+            
     def _process_tcp_packet(self, packet, flow_key):
         """
         Xử lý một gói tin TCP và cập nhật thông tin cho luồng tương ứng.

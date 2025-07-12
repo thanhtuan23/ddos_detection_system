@@ -185,10 +185,12 @@ class DDoSDetectionSystem:
             'stop_detection_callback': self.stop_detection,
             'start_prevention_callback': self.start_prevention,
             'stop_prevention_callback': self.stop_prevention,
-            'unblock_ip_callback': self.unblock_ip,
             'block_ip_callback': self.block_ip,
-            'update_config_callback': self.update_config_ui,  # Sử dụng hàm đã tối ưu
+            'unblock_ip_callback': self.unblock_ip,
+            'update_config_callback': self.update_config,
+            'system': self,  # Thêm chính hệ thống để có thể truy cập
         }
+        from ui.app import register_callbacks
         register_callbacks(callbacks)
 
     
@@ -568,12 +570,14 @@ class DDoSDetectionSystem:
         except Exception as e:
             self.logger.error(f"Lỗi khi lưu cấu hình vào file: {e}")
     
+    # main.py
     def _update_stats_loop(self):
         """Thread cập nhật thống kê hệ thống định kỳ."""
         while self.running:
             try:
                 # Cập nhật thống kê phát hiện
                 detection_stats = self.detection_engine.get_detection_stats()
+                print(f"Cập nhật thống kê: {detection_stats}")
                 update_detection_stats(detection_stats)
                 
                 # Cập nhật danh sách IP bị chặn
@@ -585,7 +589,8 @@ class DDoSDetectionSystem:
                 update_system_info(system_info)
                 
             except Exception as e:
-                self.logger.error(f"Lỗi khi cập nhật thống kê: {e}")
+                print(f"Lỗi khi cập nhật thống kê: {e}")
+                self.logger.error(f"Lỗi khi cập nhật thống kê: {e}", exc_info=True)
                 
             time.sleep(5)  # Cập nhật mỗi 5 giây
     

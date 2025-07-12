@@ -4,17 +4,22 @@
 let attackDistributionChart = null;
 
 // Hàm cập nhật thông tin hệ thống
+// Hàm cập nhật thông tin hệ thống
 function updateSystemStats() {
+    // Sử dụng API status thay vì gọi nhiều API riêng biệt
     fetch('/api/status')
         .then(response => response.json())
         .then(data => {
+            console.log("Dữ liệu nhận được từ API status:", data);
+            
+            // Cập nhật thông tin hệ thống
             if (data.system_info) {
-                const info = data.system_info;
+                const systemInfo = data.system_info;
                 
                 // Cập nhật CPU
                 const cpuProgress = document.getElementById('cpu-progress');
                 const cpuValue = document.getElementById('cpu-value');
-                const cpuPercent = info.cpu_percent || 0;
+                const cpuPercent = systemInfo.cpu_percent || 0;
                 
                 cpuProgress.style.width = cpuPercent + '%';
                 cpuValue.textContent = cpuPercent + '%';
@@ -30,7 +35,7 @@ function updateSystemStats() {
                 // Cập nhật RAM
                 const ramProgress = document.getElementById('ram-progress');
                 const ramValue = document.getElementById('ram-value');
-                const ramPercent = info.memory_percent || 0;
+                const ramPercent = systemInfo.memory_percent || 0;
                 
                 ramProgress.style.width = ramPercent + '%';
                 ramValue.textContent = ramPercent + '%';
@@ -45,25 +50,53 @@ function updateSystemStats() {
                 
                 // Cập nhật kích thước hàng đợi
                 const queueSize = document.getElementById('queue-size');
-                queueSize.textContent = info.packet_queue_size || 0;
+                queueSize.textContent = systemInfo.packet_queue_size || 0;
+            }
+            
+            // Cập nhật thống kê phát hiện
+            if (data.detection_stats) {
+                updateDetectionStats(data.detection_stats);
             }
             
             // Cập nhật danh sách tấn công đang diễn ra
-            updateActiveAttacks(data.active_attacks || []);
+            if (data.active_attacks) {
+                updateActiveAttacks(data.active_attacks);
+                
+                // Cập nhật biểu đồ phân bố tấn công
+                const distribution = {};
+                data.active_attacks.forEach(attack => {
+                    if (attack.attack_type) {
+                        distribution[attack.attack_type] = (distribution[attack.attack_type] || 0) + 1;
+                    }
+                });
+                updateAttackDistributionChart(distribution);
+            }
             
             // Cập nhật danh sách IP bị chặn
-            updateBlockedIPs(data.blocked_ips || []);
-            
-            // Cập nhật thống kê phát hiện
-            updateDetectionStats(data.detection_stats || {});
-            
-            // Cập nhật biểu đồ phân bố tấn công
-            if (data.detection_stats && data.detection_stats.attack_types_distribution) {
-                updateAttackDistributionChart(data.detection_stats.attack_types_distribution);
+            if (data.blocked_ips) {
+                updateBlockedIPs(data.blocked_ips);
             }
         })
         .catch(error => {
-            console.error('Lỗi khi tải dữ liệu:', error);
+            console.error('Lỗi khi tải dữ liệu từ API status:', error);
+            
+            // Thử tải dữ liệu thống kê từ API riêng biệt
+            fetch('/api/detection_stats')
+                .then(response => response.json())
+                .then(stats => {
+                    console.log("Dữ liệu từ API detection_stats:", stats);
+                    updateDetectionStats(stats);
+                })
+                .catch(err => console.error('Lỗi khi tải thống kê phát hiện:', err));
+            
+            // Thử tải danh sách IP bị chặn từ API riêng biệt
+            fetch('/api/blocked_ips')
+                .then(response => response.json())
+                .then(ips => {
+                    console.log("Dữ liệu từ API blocked_ips:", ips);
+                    updateBlockedIPs(ips);
+                })
+                .catch(err => console.error('Lỗi khi tải danh sách IP bị chặn:', err));
         });
 }
 
@@ -176,9 +209,19 @@ function unblockIP(ip) {
     }
 }
 
-// Cập nhật thống kê phát hiện
 function updateDetectionStats(stats) {
     const container = document.getElementById('detection-stats-container');
+    
+    // Đảm bảo stats là một object
+    if (!stats || typeof stats !== 'object') {
+        console.error('Dữ liệu thống kê không hợp lệ:', stats);
+        container.innerHTML = `
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>Không thể tải dữ liệu thống kê
+            </div>
+        `;
+        return;
+    }
     
     const totalFlows = stats.total_flows_analyzed || 0;
     const totalAttacks = stats.total_attacks_detected || 0;

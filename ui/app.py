@@ -26,6 +26,17 @@ system_state = {
     'system_info': {}
 }
 
+# Biến toàn cục để lưu trữ trạng thái
+detection_stats = {
+    'total_flows_analyzed': 0,
+    'total_attacks_detected': 0,
+    'detection_rate': 0,
+    'avg_processing_time_ms': 0
+}
+blocked_ips = []
+system_info = {}
+ddos_system = None
+
 # Thêm ở đầu file để tắt thông báo debug
 
 log = logging.getLogger('werkzeug')
