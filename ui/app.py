@@ -365,11 +365,23 @@ def get_system_stats():
 
 # Khởi động webapp
 def run_webapp(host, port, debug):
-    print(f"Khởi động ứng dụng web tại {host}:{port} với debug={debug}")
-    app.run(host=host, port=port, debug=debug, use_reloader=False)
+    print(f"DEBUG: Trong run_webapp, chuẩn bị khởi động Flask với {host}:{port}, debug={debug}")
     
-# Khởi động webapp
-def run_webapp(host='0.0.0.0', port=5000, debug=False):
-    # Đăng ký socketio events
-    from ui.socketio_events import register_socketio_events
-    register_socketio_events(socketio, app) 
+    try:
+        # Thử xem app là loại gì
+        print(f"DEBUG: Loại ứng dụng: {type(app)}")
+        
+        # Kiểm tra socketio nếu được sử dụng
+        if 'socketio' in globals():
+            print("DEBUG: Đang sử dụng SocketIO")
+            socketio.run(app, host=host, port=port, debug=debug, use_reloader=False)
+        else:
+            print("DEBUG: Đang sử dụng Flask thông thường")
+            app.run(host=host, port=port, debug=debug, use_reloader=False)
+            
+        print("DEBUG: Máy chủ web đã khởi động") # Dòng này có thể không được in nếu app.run() chặn
+    except Exception as e:
+        print(f"LỖI khi khởi động máy chủ web: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
