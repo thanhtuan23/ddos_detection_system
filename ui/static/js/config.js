@@ -1,420 +1,374 @@
-// src/ddos_detection_system/ui/static/js/config.js
+// ui/static/js/config.js
 
-// Cập nhật hiển thị ngưỡng phát hiện khi di chuyển thanh trượt
-document.getElementById('detection_threshold').addEventListener('input', function() {
-    document.getElementById('threshold_value').textContent = this.value;
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize configuration forms
+    initConfigForms();
+    
+    // Initialize range sliders
+    initRangeSliders();
+    
+    // Load current configuration
+    loadConfiguration();
+    
+    // Add event listener for test email button
+    document.getElementById('testEmailBtn').addEventListener('click', testEmailNotification);
+    
+    // Add event listener for reset defaults button
+    document.getElementById('resetDefaultsBtn').addEventListener('click', resetToDefaults);
 });
 
-// Tải cấu hình hiện tại
-function loadCurrentConfig() {
-    fetch('/api/status')
-        .then(response => response.json())
-        .then(data => {
-            updateSystemStatusIndicator(data);
-            
-            // Điều chỉnh nút bắt đầu/dừng phát hiện
-            const detectionToggle = document.getElementById('detection-toggle');
-            if (data.detection_running) {
-                detectionToggle.classList.remove('btn-success');
-                detectionToggle.classList.add('btn-danger');
-                detectionToggle.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Dừng phát hiện';
-            } else {
-                detectionToggle.classList.remove('btn-danger');
-                detectionToggle.classList.add('btn-success');
-                detectionToggle.innerHTML = '<i class="bi bi-play-fill me-1"></i>Bắt đầu phát hiện';
-            }
-            
-            // Điều chỉnh nút bắt đầu/dừng ngăn chặn
-            const preventionToggle = document.getElementById('prevention-toggle');
-            if (data.prevention_running) {
-                preventionToggle.classList.remove('btn-success');
-                preventionToggle.classList.add('btn-danger');
-                preventionToggle.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Dừng ngăn chặn';
-            } else {
-                preventionToggle.classList.remove('btn-danger');
-                preventionToggle.classList.add('btn-success');
-                preventionToggle.innerHTML = '<i class="bi bi-play-fill me-1"></i>Bắt đầu ngăn chặn';
-            }
-        })
-        .catch(error => {
-            console.error('Lỗi khi tải trạng thái hệ thống:', error);
-        });
+function initConfigForms() {
+    // Detection Config Form
+    document.getElementById('detectionConfigForm').addEventListener('submit', function(e) {
+        e.preventDefault();
         
-    // Tải cấu hình từ server
-    fetch('/api/get_config')
+        // Collect form data
+        const config = {
+            detection_threshold: parseFloat(document.getElementById('detectionThreshold').value),
+            false_positive_threshold: parseFloat(document.getElementById('falsePositiveThreshold').value),
+            batch_size: parseInt(document.getElementById('batchSize').value),
+            check_interval: parseFloat(document.getElementById('checkInterval').value),
+            streaming_services: document.getElementById('streamingServices').value.split(',').map(s => s.trim()),
+            critical_attack_types: document.getElementById('criticalAttackTypes').value.split(',').map(s => s.trim())
+        };
+        
+        // Save configuration
+        saveConfiguration('Detection', config);
+    });
+    
+    // Prevention Config Form
+    document.getElementById('preventionConfigForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Collect form data
+        const config = {
+            auto_block: document.getElementById('autoBlock').checked,
+            block_duration: parseInt(document.getElementById('blockDuration').value),
+            min_alerts_for_autoblock: parseInt(document.getElementById('minAlertsForAutoblock').value),
+            alert_window: parseInt(document.getElementById('alertWindow').value),
+            whitelist: document.getElementById('whitelist').value.split(',').map(s => s.trim()),
+            autoblock_attack_types: document.getElementById('autoblockAttackTypes').value.split(',').map(s => s.trim())
+        };
+        
+        // Save configuration
+        saveConfiguration('Prevention', config);
+    });
+    
+    // Network Config Form
+    document.getElementById('networkConfigForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Collect form data
+        const config = {
+            interface: document.getElementById('interface').value,
+            capture_filter: document.getElementById('captureFilter').value,
+            buffer_size: parseInt(document.getElementById('bufferSize').value),
+            max_packets_per_flow: parseInt(document.getElementById('maxPacketsPerFlow').value),
+            whitelist_ports: document.getElementById('whitelistPorts').value.split(',').map(s => s.trim())
+        };
+        
+        // Save configuration
+        saveConfiguration('Network', config);
+    });
+    
+    // Notification Config Form
+    document.getElementById('notificationConfigForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Collect form data
+        const config = {
+            enable_notifications: document.getElementById('enableNotifications').checked,
+            smtp_server: document.getElementById('smtpServer').value,
+            smtp_port: parseInt(document.getElementById('smtpPort').value),
+            sender_email: document.getElementById('senderEmail').value,
+            password: document.getElementById('emailPassword').value,
+            recipients: document.getElementById('recipients').value.split(',').map(s => s.trim()),
+            cooldown_period: parseInt(document.getElementById('cooldownPeriod').value),
+            min_confidence_for_notification: parseFloat(document.getElementById('minConfidenceForNotification').value),
+            message_format: document.getElementById('messageFormat').value
+        };
+        
+        // Save configuration
+        saveConfiguration('Notification', config);
+    });
+    
+    // Advanced Config Form
+    document.getElementById('advancedConfigForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Collect form data
+        const config = {
+            learning_mode: document.getElementById('learningMode').checked,
+            async_analysis: document.getElementById('asyncAnalysis').checked,
+            detailed_traffic_logging: document.getElementById('detailedTrafficLogging').checked,
+            multi_model_analysis: document.getElementById('multiModelAnalysis').checked,
+            max_analysis_threads: parseInt(document.getElementById('maxAnalysisThreads').value),
+            min_packets_for_pattern_analysis: parseInt(document.getElementById('minPacketsForAnalysis').value),
+            data_retention_days: parseInt(document.getElementById('dataRetentionDays').value),
+            max_flow_analysis_time: parseInt(document.getElementById('maxFlowAnalysisTime').value),
+            secondary_model_min_confidence: parseFloat(document.getElementById('secondaryModelMinConfidence').value),
+            result_blending_mode: document.getElementById('resultBlendingMode').value,
+            model_weights: document.getElementById('modelWeights').value.split(',').map(s => parseFloat(s.trim()))
+        };
+        
+        // Save configuration
+        saveConfiguration('Advanced', config);
+    });
+}
+
+function initRangeSliders() {
+    // Detection threshold slider
+    const detectionThreshold = document.getElementById('detectionThreshold');
+    const detectionThresholdValue = document.getElementById('detectionThresholdValue');
+    
+    detectionThreshold.addEventListener('input', function() {
+        detectionThresholdValue.textContent = this.value;
+    });
+    
+    // False positive threshold slider
+    const falsePositiveThreshold = document.getElementById('falsePositiveThreshold');
+    const falsePositiveThresholdValue = document.getElementById('falsePositiveThresholdValue');
+    
+    falsePositiveThreshold.addEventListener('input', function() {
+        falsePositiveThresholdValue.textContent = this.value;
+    });
+    
+    // Min confidence for notification slider
+    const minConfidenceForNotification = document.getElementById('minConfidenceForNotification');
+    const minConfidenceForNotificationValue = document.getElementById('minConfidenceForNotificationValue');
+    
+    minConfidenceForNotification.addEventListener('input', function() {
+        minConfidenceForNotificationValue.textContent = this.value;
+    });
+    
+    // Secondary model min confidence slider
+    const secondaryModelMinConfidence = document.getElementById('secondaryModelMinConfidence');
+    const secondaryModelMinConfidenceValue = document.getElementById('secondaryModelMinConfidenceValue');
+    
+    secondaryModelMinConfidence.addEventListener('input', function() {
+        secondaryModelMinConfidenceValue.textContent = this.value;
+    });
+}
+
+function loadConfiguration() {
+    // Show loading indicator
+    showToast('Loading configuration...', 'info');
+    
+    // Fetch configuration
+    fetch('/api/config')
         .then(response => response.json())
         .then(config => {
-            // Điền giá trị vào form
-            if (config.detection && config.detection.params) {
-                const params = config.detection.params;
-                document.getElementById('detection_threshold').value = params.detection_threshold || 0.7;
-                document.getElementById('threshold_value').textContent = params.detection_threshold || 0.7;
-                document.getElementById('batch_size').value = params.batch_size || 5;
-                document.getElementById('check_interval').value = params.check_interval || 1.0;
+            // Populate detection config
+            if (config.Detection) {
+                document.getElementById('detectionThreshold').value = config.Detection.detection_threshold || 0.7;
+                document.getElementById('detectionThresholdValue').textContent = config.Detection.detection_threshold || 0.7;
                 
-                // Điền đường dẫn mô hình nếu có
-                if (document.getElementById('model_path')) {
-                    document.getElementById('model_path').value = params.model_path || '';
+                document.getElementById('falsePositiveThreshold').value = config.Detection.false_positive_threshold || 0.8;
+                document.getElementById('falsePositiveThresholdValue').textContent = config.Detection.false_positive_threshold || 0.8;
+                
+                document.getElementById('batchSize').value = config.Detection.batch_size || 10;
+                document.getElementById('checkInterval').value = config.Detection.check_interval || 1.0;
+                
+                if (config.Detection.streaming_services) {
+                    document.getElementById('streamingServices').value = Array.isArray(config.Detection.streaming_services) 
+                        ? config.Detection.streaming_services.join(', ')
+                        : config.Detection.streaming_services;
+                }
+                
+                                if (config.Detection.critical_attack_types) {
+                    document.getElementById('criticalAttackTypes').value = Array.isArray(config.Detection.critical_attack_types) 
+                        ? config.Detection.critical_attack_types.join(', ')
+                        : config.Detection.critical_attack_types;
                 }
             }
             
-            if (config.prevention && config.prevention.params) {
-                const params = config.prevention.params;
-                document.getElementById('block_duration').value = params.block_duration || 300;
-                document.getElementById('whitelist').value = Array.isArray(params.whitelist) ? 
-                    params.whitelist.join(', ') : params.whitelist || '';
+            // Populate prevention config
+            if (config.Prevention) {
+                document.getElementById('autoBlock').checked = config.Prevention.auto_block === 'true';
+                document.getElementById('blockDuration').value = config.Prevention.block_duration || 300;
+                document.getElementById('minAlertsForAutoblock').value = config.Prevention.min_alerts_for_autoblock || 3;
+                document.getElementById('alertWindow').value = config.Prevention.alert_window || 60;
                 
-                // Điền trạng thái enable_auto_block nếu có
-                if (document.getElementById('enable_auto_block')) {
-                    document.getElementById('enable_auto_block').checked = 
-                        params.enable_auto_block === undefined ? true : (params.enable_auto_block === 'true');
+                if (config.Prevention.whitelist) {
+                    document.getElementById('whitelist').value = Array.isArray(config.Prevention.whitelist) 
+                        ? config.Prevention.whitelist.join(', ')
+                        : config.Prevention.whitelist;
+                }
+                
+                if (config.Prevention.autoblock_attack_types) {
+                    document.getElementById('autoblockAttackTypes').value = Array.isArray(config.Prevention.autoblock_attack_types) 
+                        ? config.Prevention.autoblock_attack_types.join(', ')
+                        : config.Prevention.autoblock_attack_types;
                 }
             }
             
-            if (config.notification && config.notification.params) {
-                const params = config.notification.params;
-                document.getElementById('smtp_server').value = params.smtp_server || '';
-                document.getElementById('smtp_port').value = params.smtp_port || '';
-                document.getElementById('sender_email').value = params.sender_email || '';
-                document.getElementById('email_password').value = ''; // Không hiển thị mật khẩu
-                document.getElementById('recipients').value = Array.isArray(params.recipients) ?
-                    params.recipients.join(', ') : params.recipients || '';
-                document.getElementById('cooldown_period').value = params.cooldown_period || 300;
+            // Populate network config
+            if (config.Network) {
+                document.getElementById('interface').value = config.Network.interface || 'eth0';
+                document.getElementById('captureFilter').value = config.Network.capture_filter || 'ip';
+                document.getElementById('bufferSize').value = config.Network.buffer_size || 1000;
+                document.getElementById('maxPacketsPerFlow').value = config.Network.max_packets_per_flow || 20;
                 
-                // Điền trạng thái enable_notifications nếu có
-                if (document.getElementById('enable_notifications')) {
-                    document.getElementById('enable_notifications').checked = 
-                        params.enable_notifications === undefined ? true : (params.enable_notifications === 'true');
+                if (config.Network.whitelist_ports) {
+                    document.getElementById('whitelistPorts').value = Array.isArray(config.Network.whitelist_ports) 
+                        ? config.Network.whitelist_ports.join(', ')
+                        : config.Network.whitelist_ports;
                 }
             }
             
-            // Đánh dấu các tham số yêu cầu khởi động lại
-            highlightRestartParams(config);
+            // Populate notification config
+            if (config.Notification) {
+                document.getElementById('enableNotifications').checked = config.Notification.enable_notifications === 'true';
+                document.getElementById('smtpServer').value = config.Notification.smtp_server || 'smtp.gmail.com';
+                document.getElementById('smtpPort').value = config.Notification.smtp_port || 587;
+                document.getElementById('senderEmail').value = config.Notification.sender_email || 'your_email@gmail.com';
+                document.getElementById('cooldownPeriod').value = config.Notification.cooldown_period || 300;
+                
+                document.getElementById('minConfidenceForNotification').value = config.Notification.min_confidence_for_notification || 0.85;
+                document.getElementById('minConfidenceForNotificationValue').textContent = config.Notification.min_confidence_for_notification || 0.85;
+                
+                document.getElementById('messageFormat').value = config.Notification.message_format || 'html';
+                
+                if (config.Notification.recipients) {
+                    document.getElementById('recipients').value = Array.isArray(config.Notification.recipients) 
+                        ? config.Notification.recipients.join(', ')
+                        : config.Notification.recipients;
+                }
+            }
+            
+            // Populate advanced config
+            if (config.Advanced) {
+                document.getElementById('learningMode').checked = config.Advanced.learning_mode === 'true';
+                document.getElementById('asyncAnalysis').checked = config.Advanced.async_analysis === 'true';
+                document.getElementById('detailedTrafficLogging').checked = config.Advanced.detailed_traffic_logging === 'true';
+                document.getElementById('multiModelAnalysis').checked = config.Advanced.multi_model_analysis === 'true';
+                
+                document.getElementById('maxAnalysisThreads').value = config.Advanced.max_analysis_threads || 4;
+                document.getElementById('minPacketsForAnalysis').value = config.Advanced.min_packets_for_pattern_analysis || 5;
+                document.getElementById('dataRetentionDays').value = config.Advanced.data_retention_days || 30;
+                document.getElementById('maxFlowAnalysisTime').value = config.Advanced.max_flow_analysis_time || 30;
+                
+                document.getElementById('secondaryModelMinConfidence').value = config.Advanced.secondary_model_min_confidence || 0.65;
+                document.getElementById('secondaryModelMinConfidenceValue').textContent = config.Advanced.secondary_model_min_confidence || 0.65;
+                
+                document.getElementById('resultBlendingMode').value = config.Advanced.result_blending_mode || 'ensemble';
+                
+                if (config.Advanced.model_weights) {
+                    document.getElementById('modelWeights').value = Array.isArray(config.Advanced.model_weights) 
+                        ? config.Advanced.model_weights.join(', ')
+                        : config.Advanced.model_weights;
+                }
+            }
+            
+            showToast('Configuration loaded successfully', 'success');
         })
         .catch(error => {
-            console.error('Lỗi khi tải cấu hình:', error);
+            console.error('Error loading configuration:', error);
+            showToast('Error loading configuration', 'danger');
         });
 }
 
-// Hàm đánh dấu các tham số yêu cầu khởi động lại
-function highlightRestartParams(config) {
-    // Duyệt qua các section
-    for (const [sectionName, sectionData] of Object.entries(config)) {
-        if (sectionData.restart_params && Array.isArray(sectionData.restart_params)) {
-            // Duyệt qua các tham số yêu cầu khởi động lại
-            for (const param of sectionData.restart_params) {
-                // Tìm phần tử label tương ứng
-                const inputElement = document.getElementById(param);
-                if (inputElement) {
-                    const labelElement = inputElement.previousElementSibling;
-                    if (labelElement && labelElement.tagName === 'LABEL') {
-                        // Thêm dấu hiệu yêu cầu khởi động lại
-                        labelElement.innerHTML += ' <span class="badge bg-warning text-dark">Restart</span>';
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Cập nhật trạng thái hệ thống
-function updateSystemStatusIndicator(data) {
-    const indicator = document.getElementById('system-status-indicator');
-    let html = '';
+function saveConfiguration(section, config) {
+    // Show loading indicator
+    showToast(`Saving ${section} configuration...`, 'info');
     
-    if (data.detection_running) {
-        html += '<span class="status-indicator status-active"></span>';
-        html += '<span class="text-success fw-bold">Phát hiện: Hoạt động</span>';
-    } else {
-        html += '<span class="status-indicator status-inactive"></span>';
-        html += '<span class="text-danger fw-bold">Phát hiện: Dừng</span>';
-    }
-    
-    html += ' | ';
-    
-    if (data.prevention_running) {
-        html += '<span class="status-indicator status-active"></span>';
-        html += '<span class="text-success fw-bold">Ngăn chặn: Hoạt động</span>';
-    } else {
-        html += '<span class="status-indicator status-inactive"></span>';
-        html += '<span class="text-danger fw-bold">Ngăn chặn: Dừng</span>';
-    }
-    
-    indicator.innerHTML = html;
-}
-
-// Xử lý form Detection
-document.getElementById('detection-form').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const config = {
-        detection_threshold: parseFloat(document.getElementById('detection_threshold').value),
-        batch_size: parseInt(document.getElementById('batch_size').value),
-        check_interval: parseFloat(document.getElementById('check_interval').value)
+    // Prepare data
+    const data = {
+        section: section,
+        config: config
     };
     
-    updateConfig('detection', config);
-});
-
-// Xử lý form Prevention
-document.getElementById('prevention-form').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const whitelist = document.getElementById('whitelist').value
-        .split(',')
-        .map(ip => ip.trim())
-        .filter(ip => ip);
-    
-    const config = {
-        block_duration: parseInt(document.getElementById('block_duration').value),
-        whitelist: whitelist,
-        enable_auto_block: document.getElementById('enable_auto_block').checked
-    };
-    
-    updateConfig('prevention', config);
-});
-
-// Xử lý form Notification
-document.getElementById('notification-form').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const recipients = document.getElementById('recipients').value
-        .split(',')
-        .map(email => email.trim())
-        .filter(email => email);
-    
-    const config = {
-        smtp_server: document.getElementById('smtp_server').value,
-        smtp_port: parseInt(document.getElementById('smtp_port').value),
-        sender_email: document.getElementById('sender_email').value,
-        password: document.getElementById('email_password').value,
-        recipients: recipients,
-        cooldown_period: parseInt(document.getElementById('cooldown_period').value),
-        enable_notifications: document.getElementById('enable_notifications').checked
-    };
-    
-    updateConfig('notification', config);
-});
-
-// Cập nhật cấu hình
-function updateConfig(section, config) {
-    // Kiểm tra xem có tham số nào yêu cầu khởi động lại không
-    const restartParams = {
-        'detection': ['batch_size', 'model_path'],
-        'prevention': ['enable_auto_block'],
-        'notification': ['enable_notifications'],
-        'network': ['interface', 'capture_filter']
-    };
-    
-    let needsRestart = false;
-    if (section.toLowerCase() in restartParams) {
-        const params = restartParams[section.toLowerCase()];
-        for (const param of params) {
-            if (param in config) {
-                needsRestart = true;
-                break;
-            }
-        }
-    }
-    
-    // Thêm thông báo tạm thời nếu cần khởi động lại
-    if (needsRestart) {
-        // Hiển thị thông báo đang khởi động lại
-        const formId = `${section.toLowerCase()}-form`;
-        const form = document.getElementById(formId);
-        if (form) {
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-warning mt-3';
-            alertDiv.id = 'restart-alert';
-            alertDiv.innerHTML = `
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border spinner-border-sm me-2" role="status">
-                        <span class="visually-hidden">Đang khởi động lại...</span>
-                    </div>
-                    <div>
-                        Đang tự động khởi động lại thành phần ${section}... Vui lòng đợi.
-                    </div>
-                </div>
-            `;
-            form.appendChild(alertDiv);
-        }
-    }
-    
-    // Gửi cập nhật cấu hình
-    fetch('/api/update_config', {
+    // Send to server
+    fetch('/api/config', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-            section: section,
-            config: config
-        })
+        body: JSON.stringify(data)
     })
     .then(response => response.json())
-    .then(data => {
-        // Xóa thông báo khởi động lại nếu có
-        const restartAlert = document.getElementById('restart-alert');
-        if (restartAlert) {
-            restartAlert.remove();
-        }
-        
-        if (data.success) {
-            // Hiển thị thông báo thành công
-            let message = `Cấu hình ${section} đã được cập nhật thành công!`;
-            
-            // Thêm thông báo đặc biệt cho tham số yêu cầu khởi động lại
-            if (needsRestart) {
-                message += ' Hệ thống đã tự động khởi động lại các thành phần cần thiết.';
-            }
-            
-            alert(message);
-            
-            // Nếu đã khởi động lại, cập nhật trạng thái UI
-            if (needsRestart) {
-                loadCurrentConfig();
-            }
+    .then(result => {
+        if (result.success) {
+            showToast(`${section} configuration saved successfully`, 'success');
         } else {
-            alert(`Lỗi khi cập nhật cấu hình ${section}: ${data.error || 'Lỗi không xác định'}`);
+            showToast(`Error saving ${section} configuration: ${result.error || 'Unknown error'}`, 'danger');
         }
     })
     .catch(error => {
-        // Xóa thông báo khởi động lại nếu có
-        const restartAlert = document.getElementById('restart-alert');
-        if (restartAlert) {
-            restartAlert.remove();
-        }
-        
-        console.error('Lỗi khi cập nhật cấu hình:', error);
-        alert('Đã xảy ra lỗi khi cập nhật cấu hình');
+        console.error(`Error saving ${section} configuration:`, error);
+        showToast(`Error saving ${section} configuration`, 'danger');
     });
 }
 
-// Xử lý nút bắt đầu/dừng phát hiện
-document.getElementById('detection-toggle').addEventListener('click', function() {
-    const isRunning = this.classList.contains('btn-danger');
-    
-    if (isRunning) {
-        // Dừng phát hiện
-        fetch('/api/stop_detection', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                this.classList.remove('btn-danger');
-                this.classList.add('btn-success');
-                this.innerHTML = '<i class="bi bi-play-fill me-1"></i>Bắt đầu phát hiện';
-                loadCurrentConfig();
-            } else {
-                alert(`Không thể dừng phát hiện: ${data.error || 'Lỗi không xác định'}`);
-            }
-        })
-        .catch(error => {
-            console.error('Lỗi khi dừng phát hiện:', error);
-        });
-    } else {
-        // Bắt đầu phát hiện
-        fetch('/api/start_detection', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                this.classList.remove('btn-success');
-                this.classList.add('btn-danger');
-                this.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Dừng phát hiện';
-                loadCurrentConfig();
-            } else {
-                alert(`Không thể bắt đầu phát hiện: ${data.error || 'Lỗi không xác định'}`);
-            }
-        })
-        .catch(error => {
-            console.error('Lỗi khi bắt đầu phát hiện:', error);
-        });
+function testEmailNotification() {
+    // Show confirmation dialog
+    if (!confirm('Send a test email with current settings?')) {
+        return;
     }
-});
-
-// Xử lý nút bắt đầu/dừng ngăn chặn
-document.getElementById('prevention-toggle').addEventListener('click', function() {
-    const isRunning = this.classList.contains('btn-danger');
     
-    if (isRunning) {
-        // Dừng ngăn chặn
-        fetch('/api/stop_prevention', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                this.classList.remove('btn-danger');
-                this.classList.add('btn-success');
-                this.innerHTML = '<i class="bi bi-play-fill me-1"></i>Bắt đầu ngăn chặn';
-                loadCurrentConfig();
-            } else {
-                alert(`Không thể dừng ngăn chặn: ${data.error || 'Lỗi không xác định'}`);
-            }
-        })
-        .catch(error => {
-            console.error('Lỗi khi dừng ngăn chặn:', error);
-        });
-    } else {
-        // Bắt đầu ngăn chặn
-        fetch('/api/start_prevention', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                this.classList.remove('btn-success');
-                this.classList.add('btn-danger');
-                this.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Dừng ngăn chặn';
-                loadCurrentConfig();
-            } else {
-                alert(`Không thể bắt đầu ngăn chặn: ${data.error || 'Lỗi không xác định'}`);
-            }
-        })
-        .catch(error => {
-            console.error('Lỗi khi bắt đầu ngăn chặn:', error);
-        });
+    // Collect email settings
+    const settings = {
+        smtp_server: document.getElementById('smtpServer').value,
+        smtp_port: parseInt(document.getElementById('smtpPort').value),
+        sender_email: document.getElementById('senderEmail').value,
+        password: document.getElementById('emailPassword').value,
+        recipients: document.getElementById('recipients').value.split(',').map(s => s.trim()),
+        message_format: document.getElementById('messageFormat').value
+    };
+    
+    // Check for required fields
+    if (!settings.smtp_server || !settings.sender_email || !settings.password || settings.recipients.length === 0) {
+        showToast('Please fill all required email settings', 'warning');
+        return;
     }
-});
-
-// Xử lý nút kiểm tra email
-document.getElementById('test-email').addEventListener('click', function() {
-    this.disabled = true;
-    this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang gửi...';
     
+    // Show loading indicator
+    showToast('Sending test email...', 'info');
+    
+    // Send test email request
     fetch('/api/test_email', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-            smtp_server: document.getElementById('smtp_server').value,
-            smtp_port: parseInt(document.getElementById('smtp_port').value),
-            sender_email: document.getElementById('sender_email').value,
-            password: document.getElementById('email_password').value,
-            recipients: document.getElementById('recipients').value.split(',').map(e => e.trim()).filter(e => e)
-        })
+        body: JSON.stringify(settings)
     })
     .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Email kiểm tra đã được gửi thành công!');
+    .then(result => {
+        if (result.success) {
+            showToast('Test email sent successfully', 'success');
         } else {
-            alert(`Không thể gửi email kiểm tra: ${data.error || 'Lỗi không xác định'}`);
+            showToast(`Error sending test email: ${result.error || 'Unknown error'}`, 'danger');
         }
     })
     .catch(error => {
-        console.error('Lỗi khi gửi email kiểm tra:', error);
-        alert('Đã xảy ra lỗi khi gửi email kiểm tra');
-    })
-    .finally(() => {
-        this.disabled = false;
-        this.innerHTML = '<i class="bi bi-envelope-check me-1"></i>Kiểm tra email';
+        console.error('Error sending test email:', error);
+        showToast('Error sending test email', 'danger');
     });
-});
+}
 
-// Tải cấu hình khi trang được tải
-loadCurrentConfig();
+function resetToDefaults() {
+    // Show confirmation dialog
+    if (!confirm('Reset all advanced settings to default values?')) {
+        return;
+    }
+    
+    // Reset advanced settings to defaults
+    document.getElementById('learningMode').checked = false;
+    document.getElementById('asyncAnalysis').checked = true;
+    document.getElementById('detailedTrafficLogging').checked = false;
+    document.getElementById('multiModelAnalysis').checked = true;
+    
+    document.getElementById('maxAnalysisThreads').value = 4;
+    document.getElementById('minPacketsForAnalysis').value = 5;
+    document.getElementById('dataRetentionDays').value = 30;
+    document.getElementById('maxFlowAnalysisTime').value = 30;
+    
+    document.getElementById('secondaryModelMinConfidence').value = 0.65;
+    document.getElementById('secondaryModelMinConfidenceValue').textContent = 0.65;
+    
+    document.getElementById('resultBlendingMode').value = 'ensemble';
+    document.getElementById('modelWeights').value = '0.6, 0.4';
+    
+    showToast('Advanced settings reset to defaults', 'success');
+}

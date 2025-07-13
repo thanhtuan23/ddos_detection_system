@@ -1,159 +1,93 @@
+/* ui/static/css/styles.css */
+
+/* Main Styles */
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background-color: #f8f9fa;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    padding-bottom: 70px; /* Space for footer */
 }
 
-.content {
-    flex: 1;
+.container-fluid {
+    max-width: 1400px;
 }
 
-.navbar-brand {
-    font-weight: 600;
-    letter-spacing: 0.5px;
+/* Animations */
+.spin {
+    animation: spin 1s linear infinite;
 }
 
-.footer {
-    margin-top: auto;
-    color: #fff;
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
-.dashboard-card {
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
-    border: none;
-    border-radius: 8px;
-    transition: transform 0.2s, box-shadow 0.2s;
+/* Toast container */
+.toast-container {
+    z-index: 1050;
 }
 
-.dashboard-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
-}
-
-.card-header {
-        border-top-left-radius: 8px !important;
-    border-top-right-radius: 8px !important;
-    font-weight: 600;
-}
-
-.badge {
-    font-weight: 500;
-    padding: 0.5em 0.8em;
-}
-
-.progress {
-    background-color: #e9ecef;
-    border-radius: 0.5rem;
-}
-
-.table th {
-    font-weight: 600;
-    border-top: none;
-}
-
-.table-hover tbody tr:hover {
-    background-color: rgba(0, 123, 255, 0.05);
-}
-
-.btn-outline-danger {
-    border-width: 1.5px;
-}
-
-.btn-outline-primary {
-    border-width: 1.5px;
-}
-
-/* Animation for loading */
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-.fade-in {
-    animation: fadeIn 0.5s;
-}
-
-/* System status indicators */
+/* Status indicators */
 .status-indicator {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
+    width: 15px;
+    height: 15px;
     border-radius: 50%;
+    display: inline-block;
     margin-right: 5px;
 }
 
 .status-active {
     background-color: #28a745;
-    box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.2);
+    box-shadow: 0 0 5px #28a745;
 }
 
 .status-inactive {
     background-color: #dc3545;
-    box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.2);
 }
 
-/* Custom styles for config page */
-.config-form label {
-    font-weight: 500;
+/* Card hover effects */
+.hover-card {
+    transition: all 0.3s;
 }
 
-.config-form .form-control:focus, 
-.config-form .form-select:focus {
-    border-color: #80bdff;
-    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+.hover-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
 }
 
-/* Media queries for responsive design */
-@media (max-width: 768px) {
-    .card-body {
-        padding: 1rem;
-    }
-    
-    h1 {
-        font-size: 1.8rem;
-    }
-    
-    .card-header h5 {
-        font-size: 1.1rem;
-    }
-}
-.form-text .text-danger {
-    font-weight: bold;
-    animation: pulse 2s infinite;
+/* Dashboard styles */
+.stat-card {
+    transition: all 0.3s;
+    border-radius: 10px;
 }
 
-@keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.7; }
-    100% { opacity: 1; }
+.stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
 
-/* Cải thiện hiển thị thông báo */
-.alert-info, .alert-warning {
-    border-left: 4px solid #0d6efd;
-    border-radius: 0.25rem;
+/* Config form styles */
+.form-help {
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
 }
 
-.alert-warning {
-    border-left-color: #ffc107;
-}
-
-/* Hiệu ứng cho form khi đang cập nhật */
-.form-updating {
-    position: relative;
-    opacity: 0.8;
-    pointer-events: none;
-}
-
-.form-updating::after {
-    content: "";
-    position: absolute;
+/* Loading overlay */
+.loading-overlay {
+    position: fixed;
     top: 0;
     left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(255, 255, 255, 0.5);
-    z-index: 100;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.loading-spinner {
+    width: 3rem;
+    height: 3rem;
 }

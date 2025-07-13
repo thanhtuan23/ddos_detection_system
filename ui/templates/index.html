@@ -1,106 +1,231 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ thống Phát hiện và Ngăn chặn DDoS</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>Home - DDoS Detection System</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/static/css/styles.css" rel="stylesheet">
+    <style>
+        .feature-icon {
+            font-size: 2.5rem;
+            color: #0d6efd;
+            margin-bottom: 1rem;
+        }
+        .hero-section {
+            background: linear-gradient(135deg, #0d6efd, #0a58ca);
+            color: white;
+            padding: 4rem 0;
+            margin-top: -1.5rem;
+        }
+        .feature-card {
+            transition: all 0.3s;
+            height: 100%;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+    </style>
 </head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="/">Hệ thống Phát hiện DDoS</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-shield-check me-2"></i>
+                DDoS Detection System
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link active" href="/">Trang chủ</a>
+                        <a class="nav-link active" href="/">
+                            <i class="bi bi-house-door me-1"></i> Home
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/dashboard">Dashboard</a>
+                        <a class="nav-link" href="/dashboard">
+                            <i class="bi bi-graph-up me-1"></i> Dashboard
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/config">Cấu hình</a>
+                        <a class="nav-link" href="/logs">
+                            <i class="bi bi-journal-text me-1"></i> Logs
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/logs">Nhật ký</a>
+                        <a class="nav-link" href="/config">
+                            <i class="bi bi-gear me-1"></i> Configuration
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/help">
+                            <i class="bi bi-question-circle me-1"></i> Help
+                        </a>
                     </li>
                 </ul>
+                <div class="d-flex">
+                    <span class="system-status" id="statusIndicator">
+                        <span class="badge bg-success" id="statusBadgeActive" style="display: none;">
+                            <i class="bi bi-shield-fill-check"></i> Active
+                        </span>
+                        <span class="badge bg-danger" id="statusBadgeInactive">
+                            <i class="bi bi-shield-slash"></i> Inactive
+                        </span>
+                    </span>
+                </div>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
-        <div class="jumbotron bg-light p-5 rounded">
-            <h1>Hệ thống Phát hiện và Ngăn chặn DDoS</h1>
-            <p class="lead">Theo dõi, phát hiện và ngăn chặn các cuộc tấn công DDoS theo thời gian thực.</p>
-            
-            <div class="row mt-4">
-                <div class="col-md-4 mb-3">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h5 class="card-title">Trạng thái Hệ thống</h5>
-                            <div id="system-status">
-                                <p>Đang tải...</p>
-                            </div>
-                            <div class="d-grid gap-2 mt-3">
-                                <button id="start-detection" class="btn btn-success">Bắt đầu phát hiện</button>
-                                <button id="stop-detection" class="btn btn-danger">Dừng phát hiện</button>
-                            </div>
-                        </div>
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="container text-center">
+            <h1 class="display-4 fw-bold mb-3">DDoS Detection System</h1>
+            <p class="lead mb-4">Advanced machine learning-based detection and prevention of DDoS attacks</p>
+            <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+                <a href="/dashboard" class="btn btn-light btn-lg px-4 gap-3">
+                    <i class="bi bi-speedometer2 me-2"></i>Go to Dashboard
+                </a>
+                <a href="/help" class="btn btn-outline-light btn-lg px-4">
+                    <i class="bi bi-question-circle me-2"></i>Learn More
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-5 mb-5">
+        <!-- System Status Summary -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <i class="bi bi-info-circle-fill me-2"></i>System Status
                     </div>
-                </div>
-                
-                <div class="col-md-4 mb-3">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h5 class="card-title">Thống kê nhanh</h5>
-                            <div id="quick-stats">
-                                <p>Đang tải...</p>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3 mb-3 mb-md-0">
+                                <div class="d-flex align-items-center">
+                                    <div class="status-indicator" id="detectionStatusHome"></div>
+                                    <div>
+                                        <h6 class="mb-0">Detection Engine</h6>
+                                        <small class="text-muted" id="detectionStatusText">Inactive</small>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-4 mb-3">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h5 class="card-title">Tấn công gần đây</h5>
-                            <div id="recent-attacks">
-                                <p>Đang tải...</p>
+                            <div class="col-md-3 mb-3 mb-md-0">
+                                <div class="d-flex align-items-center">
+                                    <div class="status-indicator" id="preventionStatusHome"></div>
+                                    <div>
+                                        <h6 class="mb-0">Prevention Engine</h6>
+                                        <small class="text-muted" id="preventionStatusText">Inactive</small>
+                                    </div>
+                                </div>
                             </div>
-                            <a href="/dashboard" class="btn btn-primary mt-3">Xem chi tiết</a>
+                            <div class="col-md-3 mb-3 mb-md-0">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-shield-fill text-primary me-2" style="font-size: 1.2rem;"></i>
+                                    <div>
+                                        <h6 class="mb-0">Blocked IPs</h6>
+                                        <small class="text-muted"><span id="blockedIpsCount">0</span> IP addresses</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-exclamation-triangle-fill text-danger me-2" style="font-size: 1.2rem;"></i>
+                                    <div>
+                                        <h6 class="mb-0">Recent Attacks</h6>
+                                        <small class="text-muted"><span id="recentAttacksCount">0</span> in last 24h</small>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-        
-        <div class="row mt-4">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        IP bị chặn
-                    </div>
-                    <div class="card-body">
-                        <div id="blocked-ips">
-                            <p>Đang tải...</p>
+
+        <!-- Features Section -->
+        <div class="row mb-4">
+            <div class="col-md-12 mb-4">
+                <h2 class="text-center mb-4">Key Features</h2>
+            </div>
+            
+            <div class="col-lg-4 mb-4">
+                <div class="card feature-card shadow-sm h-100">
+                    <div class="card-body text-center p-4">
+                        <div class="feature-icon">
+                            <i class="bi bi-shield-check"></i>
                         </div>
+                        <h4>ML-Based Detection</h4>
+                        <p class="text-muted">Uses advanced machine learning models to detect various types of DDoS attacks with high accuracy</p>
                     </div>
                 </div>
             </div>
             
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        Phân bố loại tấn công
+            <div class="col-lg-4 mb-4">
+                <div class="card feature-card shadow-sm h-100">
+                    <div class="card-body text-center p-4">
+                        <div class="feature-icon">
+                            <i class="bi bi-shield-lock"></i>
+                        </div>
+                        <h4>Automatic Prevention</h4>
+                        <p class="text-muted">Automatically blocks attacking IP addresses to protect your network infrastructure</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-4 mb-4">
+                <div class="card feature-card shadow-sm h-100">
+                    <div class="card-body text-center p-4">
+                        <div class="feature-icon">
+                            <i class="bi bi-graph-up"></i>
+                        </div>
+                        <h4>Real-time Monitoring</h4>
+                        <p class="text-muted">Monitor network traffic and attack patterns in real-time with intuitive dashboards</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-dark text-white">
+                        <i class="bi bi-lightning-fill me-2"></i>Quick Actions
                     </div>
                     <div class="card-body">
-                        <div id="attack-distribution">
-                            <p>Đang tải...</p>
+                        <div class="row">
+                            <div class="col-md-3 mb-3 mb-md-0">
+                                <a href="/dashboard" class="btn btn-primary w-100">
+                                    <i class="bi bi-speedometer2 me-2"></i>Go to Dashboard
+                                </a>
+                            </div>
+                            <div class="col-md-3 mb-3 mb-md-0">
+                                <a href="/logs" class="btn btn-danger w-100">
+                                    <i class="bi bi-journal-text me-2"></i>View Attack Logs
+                                </a>
+                            </div>
+                            <div class="col-md-3 mb-3 mb-md-0">
+                                <a href="/config" class="btn btn-info text-white w-100">
+                                    <i class="bi bi-gear me-2"></i>Configure System
+                                </a>
+                            </div>
+                            <div class="col-md-3">
+                                <a href="/help" class="btn btn-secondary w-100">
+                                    <i class="bi bi-question-circle me-2"></i>Help & Documentation
+                                </a>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -108,14 +233,77 @@
         </div>
     </div>
 
-    <footer class="footer mt-5 py-3 bg-dark">
+    <!-- Footer -->
+    <footer class="bg-dark text-white py-3 mt-auto fixed-bottom">
         <div class="container text-center">
-            <span class="text-muted">© 2025 Hệ thống Phát hiện và Ngăn chặn DDoS</span>
+            <span>DDoS Detection System &copy; 2023</span>
+            <div id="cpuMemoryStats" class="small text-muted mt-1">
+                CPU: <span id="cpuUsage">0</span>% | Memory: <span id="memoryUsage">0</span>%
+            </div>
         </div>
     </footer>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <!-- JS Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.0/dist/socket.io.min.js"></script>
+    <script src="/static/js/socketio-handler.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Update home page status
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update detection status
+                    const detectionStatus = document.getElementById('detectionStatusHome');
+                    const detectionText = document.getElementById('detectionStatusText');
+                    if (data.detection_running) {
+                        detectionStatus.classList.add('status-active');
+                        detectionStatus.classList.remove('status-inactive');
+                        detectionText.textContent = 'Active';
+                    } else {
+                        detectionStatus.classList.remove('status-active');
+                        detectionStatus.classList.add('status-inactive');
+                        detectionText.textContent = 'Inactive';
+                    }
+                    
+                    // Update prevention status
+                    const preventionStatus = document.getElementById('preventionStatusHome');
+                    const preventionText = document.getElementById('preventionStatusText');
+                    if (data.prevention_running) {
+                        preventionStatus.classList.add('status-active');
+                        preventionStatus.classList.remove('status-inactive');
+                        preventionText.textContent = 'Active';
+                    } else {
+                        preventionStatus.classList.remove('status-active');
+                        preventionStatus.classList.add('status-inactive');
+                        preventionText.textContent = 'Inactive';
+                    }
+                    
+                    // Update blocked IPs count
+                    document.getElementById('blockedIpsCount').textContent = 
+                        data.blocked_ips ? data.blocked_ips.length : 0;
+                })
+                .catch(error => console.error('Error fetching status:', error));
+                
+            // Get recent attack count
+            fetch('/api/attacks/recent')
+                .then(response => response.json())
+                .then(data => {
+                    // Filter for last 24 hours
+                    const oneDayAgo = new Date();
+                    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+                    
+                    const recentAttacks = data.filter(attack => {
+                        const attackTime = new Date(attack.timestamp);
+                        return attackTime >= oneDayAgo;
+                    });
+                    
+                    document.getElementById('recentAttacksCount').textContent = recentAttacks.length;
+                })
+                .catch(error => console.error('Error fetching attacks:', error));
+        });
+    </script>
 </body>
 </html>

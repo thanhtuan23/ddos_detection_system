@@ -1,239 +1,329 @@
-# src/ddos_detection_system/core/notification_service.py
+# core/notification_service.py
 import time
 import threading
-import queue
 import logging
-from typing import Dict, Any, List, Callable
+import json
+from typing import Dict, Any, List, Callable, Optional
 from utils.email_sender import EmailSender
 
 class NotificationService:
     """
-    Dịch vụ gửi thông báo khi phát hiện các cuộc tấn công DDoS.
+    Service for sending notifications about detected attacks.
     """
     
-    def __init__(self, email_config: Dict[str, str], cooldown_period: int = 300):
+    def __init__(self, email_config: Dict[str, Any], cooldown_period: int = 300,
+                 message_format: str = "html", critical_attack_types: List[str] = None,
+                 min_confidence: float = 0.85):
         """
-        Khởi tạo dịch vụ thông báo.
+        Initialize the notification service.
         
         Args:
-            email_config: Cấu hình email (SMTP server, credentials, etc.)
-            cooldown_period: Thời gian chờ giữa các thông báo (giây)
+            email_config: Email configuration
+            cooldown_period: Minimum time between notifications (seconds)
+            message_format: Message format ("html" or "text")
+            critical_attack_types: List of attack types considered critical
+            min_confidence: Minimum confidence for notifications
         """
+        self.logger = logging.getLogger("ddos_detection_system.core.notification_service")
+        
         self.email_sender = EmailSender(**email_config)
         self.cooldown_period = cooldown_period
-        self.notification_queue = queue.Queue()
-        self.last_notification_time = {}  # Lưu thời gian thông báo cuối cùng theo loại tấn công
-        self.running = False
-        self.notification_thread = None
-        self.logger = logging.getLogger("ddos_notification")
+        self.message_format = message_format.lower()
+        self.critical_attack_types = set(critical_attack_types) if critical_attack_types else set()
+        self.min_confidence = min_confidence
         
-        # Đăng ký các callback cho các sự kiện
-        self.event_callbacks = {}
+        # State
+        self.running = False
+        self.last_notification_time = 0
+        self.pending_notifications = []
+        self.lock = threading.RLock()
+        
+        # Notification thread
+        self.notification_thread = None
+        
+        # Callbacks
+        self.callbacks = {
+            'attack_detected': []
+        }
+        
+        self.logger.info(f"Notification service initialized with cooldown={cooldown_period}s, format={message_format}")
     
     def start(self):
-        """Bắt đầu dịch vụ thông báo."""
-        self.running = True
-        self.notification_thread = threading.Thread(target=self._process_notifications)
-        self.notification_thread.daemon = True
-        self.notification_thread.start()
-        self.logger.info("Dịch vụ thông báo đã bắt đầu")
+        """Start the notification service."""
+        with self.lock:
+            if self.running:
+                self.logger.warning("Notification service already running")
+                return
+            
+            self.running = True
+            
+            # Start notification thread
+            self.notification_thread = threading.Thread(target=self._notification_loop)
+            self.notification_thread.daemon = True
+            self.notification_thread.start()
+            
+            self.logger.info("Notification service started")
     
     def stop(self):
-        """Dừng dịch vụ thông báo."""
-        self.running = False
-        if self.notification_thread:
-            self.notification_thread.join(timeout=2.0)
-        self.logger.info("Dịch vụ thông báo đã dừng")
+        """Stop the notification service."""
+        with self.lock:
+            if not self.running:
+                self.logger.warning("Notification service not running")
+                return
+            
+            self.running = False
+            
+            # Wait for thread to terminate
+            if self.notification_thread:
+                self.notification_thread.join(timeout=2.0)
+            
+            self.logger.info("Notification service stopped")
+    
+    def register_callback(self, event: str, callback: Callable[[Dict[str, Any]], None]):
+        """
+        Register a callback function for an event.
+        
+        Args:
+            event: Event name
+            callback: Callback function
+        """
+        with self.lock:
+            if event not in self.callbacks:
+                self.callbacks[event] = []
+            
+            self.callbacks[event].append(callback)
+            self.logger.debug(f"Registered callback for event: {event}")
     
     def notify(self, attack_info: Dict[str, Any]):
         """
-        Thêm một thông báo tấn công vào hàng đợi.
+        Send notification about an attack.
         
         Args:
-            attack_info: Thông tin về cuộc tấn công DDoS
+            attack_info: Attack information
         """
-        self.notification_queue.put(attack_info)
+        # Check confidence threshold
+        confidence = attack_info.get('confidence', 0.0)
+        if confidence < self.min_confidence:
+            self.logger.debug(f"Skipping notification - confidence too low: {confidence} < {self.min_confidence}")
+            return
         
-        # Kích hoạt callback nếu đã đăng ký
-        event_type = "attack_detected"
-        if event_type in self.event_callbacks:
-            for callback in self.event_callbacks[event_type]:
-                try:
-                    callback(attack_info)
-                except Exception as e:
-                    self.logger.error(f"Lỗi khi gọi callback {callback}: {e}")
+        # Check if critical attack type (if list is specified)
+        if self.critical_attack_types:
+            attack_type = attack_info.get('attack_type', 'Unknown')
+            if attack_type not in self.critical_attack_types:
+                self.logger.debug(f"Skipping notification - non-critical attack type: {attack_type}")
+                return
+        
+        # Trigger attack detected callbacks
+        self._trigger_callbacks('attack_detected', attack_info)
+        
+        with self.lock:
+            # Add to pending notifications
+            self.pending_notifications.append(attack_info)
+            self.logger.debug(f"Added attack to pending notifications: {attack_info.get('attack_type', 'Unknown')}")
     
-    def register_callback(self, event_type: str, callback: Callable):
+    def _trigger_callbacks(self, event: str, data: Dict[str, Any]):
         """
-        Đăng ký một hàm callback cho một loại sự kiện.
+        Trigger callbacks for an event.
         
         Args:
-            event_type: Loại sự kiện ('attack_detected', 'notification_sent', etc.)
-            callback: Hàm callback được gọi khi sự kiện xảy ra
+            event: Event name
+            data: Event data
         """
-        if event_type not in self.event_callbacks:
-            self.event_callbacks[event_type] = []
-        self.event_callbacks[event_type].append(callback)
+        with self.lock:
+            if event not in self.callbacks:
+                return
+            
+            callbacks = self.callbacks[event].copy()
+        
+        # Call callbacks outside the lock
+        for callback in callbacks:
+            try:
+                callback(data)
+            except Exception as e:
+                self.logger.error(f"Error in callback for event {event}: {e}", exc_info=True)
     
-    def _process_notifications(self):
-        """Xử lý các thông báo trong hàng đợi."""
+    def _notification_loop(self):
+        """Thread function to process pending notifications."""
+        self.logger.info("Starting notification loop")
+        
         while self.running:
             try:
-                # Lấy một thông báo từ hàng đợi (timeout để cho phép kiểm tra định kỳ self.running)
-                try:
-                    attack_info = self.notification_queue.get(block=True, timeout=1.0)
-                except queue.Empty:
-                    continue
-                    
-                # Xử lý thông báo
-                self._handle_notification(attack_info)
-                self.notification_queue.task_done()
+                # Check if it's time to send notifications
+                current_time = time.time()
+                
+                with self.lock:
+                    # Check if there are pending notifications and cooldown period has passed
+                    if (self.pending_notifications and 
+                        current_time - self.last_notification_time >= self.cooldown_period):
+                        
+                        # Send notification
+                        self._send_notification(self.pending_notifications)
+                        
+                        # Update state
+                        self.last_notification_time = current_time
+                        self.pending_notifications = []
+                
+                # Sleep for a while
+                time.sleep(5)
                 
             except Exception as e:
-                self.logger.error(f"Lỗi khi xử lý thông báo: {e}")
-                time.sleep(1)  # Ngăn loop lỗi liên tục
+                self.logger.error(f"Error in notification loop: {e}", exc_info=True)
+                
+        self.logger.info("Stopping notification loop")
     
-    def _handle_notification(self, attack_info: Dict[str, Any]):
+    def _send_notification(self, attacks: List[Dict[str, Any]]):
         """
-        Xử lý một thông báo tấn công.
+        Send notification about attacks.
         
         Args:
-            attack_info: Thông tin về cuộc tấn công DDoS
-        """
-        attack_type = attack_info.get('attack_type', 'Unknown')
-        flow_key = attack_info.get('flow_key', '')
-        current_time = time.time()
-        
-        # Kiểm tra xem đã đến lúc gửi thông báo mới chưa
-        notification_key = f"{attack_type}_{flow_key.split('-')[0] if flow_key else 'unknown'}"
-        last_time = self.last_notification_time.get(notification_key, 0)
-        
-        if current_time - last_time >= self.cooldown_period:
-            # Gửi email thông báo
-            success = self._send_email_notification(attack_info)
-            
-            if success:
-                self.last_notification_time[notification_key] = current_time
-                
-                # Kích hoạt callback nếu đã đăng ký
-                if "notification_sent" in self.event_callbacks:
-                    for callback in self.event_callbacks["notification_sent"]:
-                        try:
-                            callback(attack_info)
-                        except Exception as e:
-                            self.logger.error(f"Lỗi khi gọi callback notification_sent: {e}")
-    
-    def _send_email_notification(self, attack_info: Dict[str, Any]) -> bool:
-        """
-        Gửi email thông báo về cuộc tấn công DDoS.
+            attacks: List of attack information
         """
         try:
-            attack_type = attack_info.get('attack_type', 'Unknown')
-            confidence = attack_info.get('confidence', 0)
-            timestamp = attack_info.get('timestamp', time.time())
-            flow_key = attack_info.get('flow_key', '')
-            details = attack_info.get('details', {})
-            
-            # Tách thông tin từ flow_key
-            src_ip = dst_ip = "Unknown"
-            if flow_key and '-' in flow_key:
-                parts = flow_key.split('-')
-                if ':' in parts[0]:
-                    src_ip = parts[0].split(':')[0]
-                if ':' in parts[1]:
-                    dst_ip = parts[1].split(':')[0]
-            
-            # Đánh giá mức độ nghiêm trọng dựa trên độ tin cậy
-            severity = "TRUNG BÌNH"
-            if confidence > 0.8:
-                severity = "CAO"
-            elif confidence < 0.6:
-                severity = "THẤP"
-                
-            # Tính toán tốc độ gói và băng thông
-            packet_rate = details.get('Packet Rate', 0)
-            byte_rate = details.get('Byte Rate', 0)
-            
-            # Chuyển đổi byte_rate thành MB/s
-            mbps = byte_rate * 8 / 1000000
-            
-            # Tạo nội dung email
-            subject = f"[CẢNH BÁO DDOS] Phát hiện tấn công {attack_type} - Mức độ: {severity}"
-            
-            body = f"""
-            <html>
-            <body style="font-family: Arial, sans-serif; line-height: 1.6;">
-                <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #f0ad4e; border-left: 5px solid #d9534f;">
-                    <h2 style="color: #d9534f; margin-top: 0;">⚠️ CẢNH BÁO: PHÁT HIỆN TẤN CÔNG DDOS</h2>
-                    
-                    <div style="background-color: #f8f8f8; padding: 15px; margin-bottom: 20px; border-radius: 4px;">
-                        <table style="width: 100%">
-                            <tr>
-                                <td style="font-weight: bold; padding: 8px 0;">Loại tấn công:</td>
-                                <td>{attack_type}</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight: bold; padding: 8px 0;">Mức độ nghiêm trọng:</td>
-                                <td style="color: {'#d9534f' if severity == 'CAO' else '#f0ad4e' if severity == 'TRUNG BÌNH' else '#5bc0de'};">
-                                    {severity} (Độ tin cậy: {confidence:.0%})
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight: bold; padding: 8px 0;">Thời gian phát hiện:</td>
-                                <td>{time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(timestamp))}</td>
-                            </tr>
-                        </table>
-                    </div>
-                    
-                    <h3 style="margin-bottom: 10px;">Thông tin cơ bản:</h3>
-                    <div style="background-color: #f8f8f8; padding: 15px; margin-bottom: 20px; border-radius: 4px;">
-                        <table style="width: 100%">
-                            <tr>
-                                <td style="font-weight: bold; padding: 8px 0; width: 170px;">IP nguồn:</td>
-                                <td>{src_ip}</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight: bold; padding: 8px 0;">IP đích:</td>
-                                <td>{dst_ip}</td>
-                            </tr>
-                            <tr>
-                                <td style="font-weight: bold; padding: 8px 0;">Tốc độ:</td>
-                                <td>{packet_rate:.0f} gói/giây ({mbps:.2f} Mbps)</td>
-                            </tr>
-                        </table>
-                    </div>
-                    
-                    <div style="background-color: #d9edf7; padding: 15px; margin: 25px 0; border-radius: 4px;">
-                        <h3 style="margin-top: 0; color: #31708f;">Hành động đề xuất:</h3>
-                        <ul style="margin-bottom: 0;">
-                            <li>Kiểm tra tình trạng máy chủ và dịch vụ mạng</li>
-                            <li>Xác minh lưu lượng mạng bất thường từ IP nguồn</li>
-                            <li>Cân nhắc chặn IP nguồn nếu xác nhận đây là cuộc tấn công</li>
-                        </ul>
-                    </div>
-                    
-                    <p style="font-size: 12px; color: #777; margin-top: 30px;">
-                        Email này được gửi tự động từ hệ thống phát hiện DDoS. Vui lòng không trả lời email này.
-                    </p>
-                </div>
-            </body>
-            </html>
-            """
-            
-            # Gửi email
-            success = self.email_sender.send_email(
-                subject=subject,
-                body=body,
-                is_html=True
-            )
-            
-            if success:
-                self.logger.info(f"Đã gửi thông báo email về tấn công {attack_type}")
+            # Prepare subject
+            if len(attacks) == 1:
+                attack = attacks[0]
+                subject = f"DDoS Alert: {attack.get('attack_type', 'Unknown')} attack detected"
             else:
-                self.logger.error(f"Không thể gửi thông báo email về tấn công {attack_type}")
-                
-            return success
+                subject = f"DDoS Alert: {len(attacks)} attacks detected"
+            
+            # Prepare message body
+            if self.message_format == "html":
+                body = self._create_html_message(attacks)
+            else:
+                body = self._create_text_message(attacks)
+            
+            # Send email
+            self.email_sender.send_email(subject, body, is_html=(self.message_format == "html"))
+            
+            self.logger.info(f"Sent notification about {len(attacks)} attacks")
             
         except Exception as e:
-            self.logger.error(f"Lỗi khi gửi email thông báo: {e}")
-            return False
+            self.logger.error(f"Error sending notification: {e}", exc_info=True)
+    
+    def _create_html_message(self, attacks: List[Dict[str, Any]]) -> str:
+        """
+        Create HTML message for attacks.
+        
+        Args:
+            attacks: List of attack information
+            
+        Returns:
+            HTML message
+        """
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+                .high { background-color: #ffdddd; }
+                .medium { background-color: #ffffcc; }
+                .low { background-color: #e6f3ff; }
+            </style>
+        </head>
+        <body>
+            <h2>DDoS Attack Alert</h2>
+            <p>The following DDoS attacks have been detected:</p>
+            <table>
+                <tr>
+                    <th>Time</th>
+                    <th>Attack Type</th>
+                    <th>Source IP</th>
+                    <th>Destination IP</th>
+                    <th>Confidence</th>
+                    <th>Status</th>
+                </tr>
+        """
+        
+        for attack in attacks:
+            # Format timestamp
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S", 
+                                      time.localtime(attack.get('timestamp', time.time())))
+            
+            # Determine confidence class
+            confidence = attack.get('confidence', 0.0)
+            confidence_class = "high" if confidence >= 0.9 else "medium" if confidence >= 0.7 else "low"
+            
+            # Determine status
+            status = "Blocked" if attack.get('blocked', False) else "Detected"
+            
+            html += f"""
+                <tr class="{confidence_class}">
+                    <td>{timestamp}</td>
+                    <td>{attack.get('attack_type', 'Unknown')}</td>
+                    <td>{attack.get('src_ip', 'Unknown')}</td>
+                    <td>{attack.get('dst_ip', 'Unknown')}</td>
+                    <td>{confidence:.2f}</td>
+                    <td>{status}</td>
+                </tr>
+            """
+        
+        html += """
+            </table>
+            
+            <h3>Attack Details</h3>
+        """
+        
+        # Add details for each attack
+        for i, attack in enumerate(attacks):
+            details = attack.get('details', {})
+            html += f"""
+            <div>
+                <h4>Attack #{i+1}: {attack.get('attack_type', 'Unknown')}</h4>
+                <p><strong>Source:</strong> {attack.get('src_ip', 'Unknown')}:{attack.get('src_port', 'Unknown')}</p>
+                <p><strong>Destination:</strong> {attack.get('dst_ip', 'Unknown')}:{attack.get('dst_port', 'Unknown')}</p>
+                <p><strong>Protocol:</strong> {attack.get('protocol', 'Unknown')}</p>
+                <p><strong>Packet Rate:</strong> {attack.get('packet_rate', 0):.2f} packets/sec</p>
+                <p><strong>Confidence:</strong> {attack.get('confidence', 0.0):.2f}</p>
+                <p><strong>Description:</strong> {details.get('attack_description', 'No description available')}</p>
+            </div>
+            <hr>
+            """
+        
+        html += """
+        </body>
+        </html>
+        """
+        
+        return html
+    
+    def _create_text_message(self, attacks: List[Dict[str, Any]]) -> str:
+        """
+        Create text message for attacks.
+        
+        Args:
+            attacks: List of attack information
+            
+        Returns:
+            Text message
+        """
+        text = "DDoS Attack Alert\n"
+        text += "=================\n\n"
+        text += f"The following {len(attacks)} DDoS attacks have been detected:\n\n"
+        
+        for i, attack in enumerate(attacks):
+            # Format timestamp
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S", 
+                                      time.localtime(attack.get('timestamp', time.time())))
+            
+            text += f"Attack #{i+1}:\n"
+            text += f"Time: {timestamp}\n"
+            text += f"Type: {attack.get('attack_type', 'Unknown')}\n"
+            text += f"Source: {attack.get('src_ip', 'Unknown')}:{attack.get('src_port', 'Unknown')}\n"
+            text += f"Destination: {attack.get('dst_ip', 'Unknown')}:{attack.get('dst_port', 'Unknown')}\n"
+            text += f"Protocol: {attack.get('protocol', 'Unknown')}\n"
+            text += f"Confidence: {attack.get('confidence', 0.0):.2f}\n"
+            text += f"Status: {'Blocked' if attack.get('blocked', False) else 'Detected'}\n"
+            
+            # Add attack description if available
+            details = attack.get('details', {})
+            description = details.get('attack_description', 'No description available')
+            text += f"Description: {description}\n\n"
+        
+        text += "\nThis is an automated message from your DDoS Detection System."
+        
+        return text

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Help - DDoS Detection System</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/static/css/styles.css" rel="stylesheet">
+    <style>
+        .help-section {
+            margin-bottom: 2rem;
+        }
+        .help-card {
+            transition: all 0.3s;
+            height: 100%;
+        }
+        .help-card:hover {
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        .help-icon {
+            font-size: 2rem;
+            color: #0d6efd;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-shield-check me-2"></i>
+                DDoS Detection System
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="bi bi-house-door me-1"></i> Home
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/dashboard">
+                            <i class="bi bi-graph-up me-1"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/logs">
+                            <i class="bi bi-journal-text me-1"></i> Logs
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/config">
+                            <i class="bi bi-gear me-1"></i> Configuration
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/help">
+                            <i class="bi bi-question-circle me-1"></i> Help
+                        </a>
+                    </li>
+                </ul>
+                <div class="d-flex">
+                    <span class="system-status" id="statusIndicator">
+                        <span class="badge bg-success" id="statusBadgeActive" style="display: none;">
+                            <i class="bi bi-shield-fill-check"></i> Active
+                        </span>
+                        <span class="badge bg-danger" id="statusBadgeInactive">
+                            <i class="bi bi-shield-slash"></i> Inactive
+                        </span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-4 mb-5">
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <h2><i class="bi bi-question-circle me-2"></i>Help & Documentation</h2>
+                <p class="text-muted">Learn how to use the DDoS Detection System efficiently</p>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-lg-4 mb-4">
+                <div class="card shadow-sm help-card">
+                    <div class="card-body text-center py-4">
+                        <div class="help-icon">
+                            <i class="bi bi-book"></i>
+                        </div>
+                        <h4>Getting Started</h4>
+                        <p class="text-muted">Quick guide to set up and start using the system</p>
+                        <button class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#gettingStartedContent" aria-expanded="false">
+                            Read More
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 mb-4">
+                <div class="card shadow-sm help-card">
+                    <div class="card-body text-center py-4">
+                        <div class="help-icon">
+                            <i class="bi bi-shield-check"></i>
+                        </div>
+                        <h4>Attack Detection</h4>
+                        <p class="text-muted">Understanding how the system detects attacks</p>
+                        <button class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#attackDetectionContent" aria-expanded="false">
+                            Read More
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 mb-4">
+                <div class="card shadow-sm help-card">
+                    <div class="card-body text-center py-4">
+                        <div class="help-icon">
+                            <i class="bi bi-gear"></i>
+                        </div>
+                        <h4>Configuration Guide</h4>
+                        <p class="text-muted">How to configure the system for optimal performance</p>
+                        <button class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#configGuideContent" aria-expanded="false">
+                            Read More
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="collapse mb-4" id="gettingStartedContent">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            Getting Started
+                        </div>
+                        <div class="card-body">
+                            <h5>System Overview</h5>
+                            <p>
+                                The DDoS Detection System is designed to detect and prevent Distributed Denial of Service attacks on your network.
+                                It uses machine learning models to identify malicious traffic patterns and can automatically block attacking IP addresses.
+                            </p>
+                            
+                            <h5>Initial Setup</h5>
+                            <ol>
+                                <li><strong>Network Interface:</strong> Configure the network interface to monitor in the Network settings.</li>
+                                <li><strong>Detection Settings:</strong> Adjust the detection threshold based on your security requirements.</li>
+                                <li><strong>Prevention Settings:</strong> Configure automatic blocking if desired.</li>
+                                <li><strong>Notifications:</strong> Set up email notifications to stay informed about attacks.</li>
+                            </ol>
+                            
+                            <h5>Starting the System</h5>
+                            <p>
+                                From the Dashboard, you can start both the Detection and Prevention engines.
+                                The Detection engine analyzes network traffic, while the Prevention engine handles blocking malicious IPs.
+                            </p>
+                            
+                            <h5>Monitoring</h5>
+                            <p>
+                                The Dashboard shows real-time information about detected attacks and blocked IPs.
+                                Use the Logs page to view historical attack data and analyze trends.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="collapse mb-4" id="attackDetectionContent">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            Attack Detection
+                        </div>
+                        <div class="card-body">
+                            <h5>Detection Methodology</h5>
+                            <p>
+                                The system uses two machine learning models to detect DDoS attacks:
+                            </p>
+                            <ul>
+                                <li><strong>CIC-DDoS Model:</strong> Based on the CIC-DDoS2019 dataset, specialized in detecting various DDoS attack types.</li>
+                                <li><strong>Suricata Model:</strong> Trained on Suricata logs, providing complementary detection capabilities.</li>
+                            </ul>
+                            
+                            <h5>Attack Types</h5>
+                            <p>The system can detect various types of DDoS attacks, including:</p>
+                            <ul>
+                                <li><strong>SYN Flood:</strong> Exploits the TCP handshake by sending numerous SYN packets without completing the handshake.</li>
+                                <li><strong>UDP Flood:</strong> Sends a large number of UDP packets to overwhelm target servers.</li>
+                                <li><strong>LDAP Amplification:</strong> Exploits LDAP servers to generate amplified traffic volume.</li>
+                                <li><strong>DNS Amplification:</strong> Uses DNS servers to generate a large amount of traffic from small queries.</li>
+                                <li><strong>Other attack types:</strong> MSSQL Amplification, NetBIOS Amplification, and UDP Lag attacks.</li>
+                            </ul>
+                            
+                            <h5>Flow Analysis</h5>
+                            <p>
+                                The system captures network packets and groups them into flows.
+                                For each flow, it extracts various features (such as packet lengths, TCP flags, etc.)
+                                and uses the ML models to classify whether the flow is benign or an attack.
+                            </p>
+                            
+                            <h5>False Positive Reduction</h5>
+                            <p>
+                                To reduce false positives, the system:
+                            </p>
+                            <ul>
+                                <li>Uses multiple models and combines their results</li>
+                                <li>Identifies legitimate high-bandwidth services like streaming</li>
+                                <li>Analyzes traffic patterns over time</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="collapse mb-4" id="configGuideContent">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            Configuration Guide
+                        </div>
+                        <div class="card-body">
+                            <h5>Detection Settings</h5>
+                            <ul>
+                                <li><strong>Detection Threshold:</strong> The minimum confidence level (0.0-1.0) required to classify traffic as an attack. Higher values reduce false positives but might miss some attacks.</li>
+                                <li><strong>False Positive Threshold:</strong> The confidence level above which false positive reduction is not applied. Attacks detected with confidence above this level are considered definite.</li>
+                                <li><strong>Batch Size:</strong> How many flows to analyze in each batch. Higher values can improve throughput but increase memory usage.</li>
+                                <li><strong>Check Interval:</strong> How often (in seconds) the system checks for new flows to analyze.</li>
+                                <li><strong>Streaming Services:</strong> List of services that might generate high-bandwidth traffic but are legitimate.</li>
+                            </ul>
+                            
+                            <h5>Prevention Settings</h5>
+                            <ul>
+                                <li><strong>Auto Block:</strong> Whether to automatically block IPs detected as attackers.</li>
+                                <li><strong>Block Duration:</strong> How long (in seconds) to block an attacking IP.</li>
+                                <li><strong>Min Alerts for Autoblock:</strong> How many alerts are required before automatically blocking an IP.</li>
+                                <li><strong>Alert Window:</strong> The time period (in seconds) in which alerts are counted for autoblock.</li>
+                                <li><strong>Whitelist:</strong> IPs that should never be blocked, even if they appear to be attacking.</li>
+                                <li><strong>Auto-block Attack Types:</strong> Which specific attack types should trigger automatic blocking.</li>
+                            </ul>
+                            
+                            <h5>Network Settings</h5>
+                            <ul>
+                                <li><strong>Interface:</strong> The network interface to monitor (e.g., eth0).</li>
+                                <li><strong>Capture Filter:</strong> BPF filter to apply to packet capture.</li>
+                                <li><strong>Buffer Size:</strong> Maximum number of flows to keep in memory.</li>
+                                <li><strong>Max Packets Per Flow:</strong> Maximum number of packets to analyze for each flow.</li>
+                                <li><strong>Whitelist Ports:</strong> Ports that should be considered legitimate traffic.</li>
+                            </ul>
+                            
+                            <h5>Advanced Settings</h5>
+                            <ul>
+                                <li><strong>Learning Mode:</strong> Adjusts detection thresholds automatically based on observed traffic.</li>
+                                <li><strong>Async Analysis:</strong> Process flows asynchronously for better performance.</li>
+                                <li><strong>Max Analysis Threads:</strong> Maximum threads for asynchronous analysis.</li>
+                                <li><strong>Multi-Model Analysis:</strong> Use multiple models for detection.</li>
+                                <li><strong>Result Blending Mode:</strong> How to combine results from multiple models (ensemble, average, maximum).</li>
+                                <li><strong>Model Weights:</strong> Relative importance of each model in the ensemble.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-dark text-white">
+                        <i class="bi bi-question-circle me-2"></i>Frequently Asked Questions
+                    </div>
+                    <div class="card-body">
+                        <div class="accordion" id="faqAccordion">
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="faq1Header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq1Collapse" aria-expanded="false" aria-controls="faq1Collapse">
+                                        How does the system detect DDoS attacks?
+                                    </button>
+                                </h2>
+                                <div id="faq1Collapse" class="accordion-collapse collapse" aria-labelledby="faq1Header" data-bs-parent="#faqAccordion">
+                                    <div class="accordion-body">
+                                        The system captures network traffic and uses machine learning models to analyze patterns. It extracts features from network flows and classifies them as benign or attack traffic based on learned patterns from the CIC-DDoS dataset and Suricata logs.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="faq2Header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq2Collapse" aria-expanded="false" aria-controls="faq2Collapse">
+                                        What types of DDoS attacks can the system detect?
+                                    </button>
+                                </h2>
+                                <div id="faq2Collapse" class="accordion-collapse collapse" aria-labelledby="faq2Header" data-bs-parent="#faqAccordion">
+                                    <div class="accordion-body">
+                                        The system can detect various types of DDoS attacks, including SYN Flood, UDP Flood, LDAP Amplification, DNS Amplification, MSSQL Amplification, NetBIOS Amplification, and UDP Lag attacks.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="faq3Header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq3Collapse" aria-expanded="false" aria-controls="faq3Collapse">
+                                        How does the automatic IP blocking work?
+                                    </button>
+                                </h2>
+                                <div id="faq3Collapse" class="accordion-collapse collapse" aria-labelledby="faq3Header" data-bs-parent="#faqAccordion">
+                                    <div class="accordion-body">
+                                        When the system detects an attack with confidence above the threshold, it can automatically block the source IP using iptables rules. The IP will remain blocked for the configured duration. You can also manually block IPs from the dashboard.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="faq4Header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq4Collapse" aria-expanded="false" aria-controls="faq4Collapse">
+                                        What should I do if I see a false positive?
+                                    </button>
+                                </h2>
+                                <div id="faq4Collapse" class="accordion-collapse collapse" aria-labelledby="faq4Header" data-bs-parent="#faqAccordion">
+                                    <div class="accordion-body">
+                                        If a legitimate IP is incorrectly identified as an attacker, you can:
+                                        <ol>
+                                            <li>Unblock the IP immediately from the dashboard</li>
+                                            <li>Add the IP to the whitelist in the Prevention settings</li>
+                                            <li>Increase the detection threshold to reduce false positives</li>
+                                        </ol>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="accordion-item">
+                                                                <h2 class="accordion-header" id="faq5Header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq5Collapse" aria-expanded="false" aria-controls="faq5Collapse">
+                                        How do I optimize the system for my network?
+                                    </button>
+                                </h2>
+                                <div id="faq5Collapse" class="accordion-collapse collapse" aria-labelledby="faq5Header" data-bs-parent="#faqAccordion">
+                                    <div class="accordion-body">
+                                        <p>For optimal performance:</p>
+                                        <ul>
+                                            <li>Choose the correct network interface that carries your traffic</li>
+                                            <li>Adjust detection threshold based on your security needs</li>
+                                            <li>Add legitimate high-bandwidth services to the streaming services list</li>
+                                            <li>Whitelist critical IPs that should never be blocked</li>
+                                            <li>Enable async analysis for high-traffic networks</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-white py-3 mt-auto fixed-bottom">
+        <div class="container text-center">
+            <span>DDoS Detection System &copy; 2023</span>
+            <div id="cpuMemoryStats" class="small text-muted mt-1">
+                CPU: <span id="cpuUsage">0</span>% | Memory: <span id="memoryUsage">0</span>%
+            </div>
+        </div>
+    </footer>
+
+    <!-- JS Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.0/dist/socket.io.min.js"></script>
+    <script src="/static/js/socketio-handler.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/help.js"></script>
+</body>
+</html>

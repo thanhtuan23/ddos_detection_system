@@ -1,156 +1,188 @@
-<!-- src/ddos_detection_system/ui/templates/dashboard.html -->
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Hệ thống Phát hiện DDoS</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>Dashboard - DDoS Detection System</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/static/css/styles.css" rel="stylesheet">
+    <style>
+        .stat-card {
+            transition: all 0.3s;
+        }
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .control-card {
+            min-height: 200px;
+        }
+        .status-indicator {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-active {
+            background-color: #28a745;
+        }
+        .status-inactive {
+            background-color: #dc3545;
+        }
+    </style>
 </head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="/"><i class="bi bi-shield-check me-2"></i>DDoS Detection</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-shield-check me-2"></i>
+                DDoS Detection System
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="/"><i class="bi bi-house me-1"></i>Trang chủ</a>
+                        <a class="nav-link" href="/">
+                            <i class="bi bi-house-door me-1"></i> Home
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" href="/dashboard"><i class="bi bi-graph-up me-1"></i>Dashboard</a>
+                        <a class="nav-link active" href="/dashboard">
+                            <i class="bi bi-graph-up me-1"></i> Dashboard
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/config"><i class="bi bi-gear me-1"></i>Cấu hình</a>
+                        <a class="nav-link" href="/logs">
+                            <i class="bi bi-journal-text me-1"></i> Logs
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/logs"><i class="bi bi-journal-text me-1"></i>Nhật ký</a>
+                        <a class="nav-link" href="/config">
+                            <i class="bi bi-gear me-1"></i> Configuration
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/help">
+                            <i class="bi bi-question-circle me-1"></i> Help
+                        </a>
                     </li>
                 </ul>
+                <div class="d-flex">
+                    <span class="system-status" id="statusIndicator">
+                        <span class="badge bg-success" id="statusBadgeActive" style="display: none;">
+                            <i class="bi bi-shield-fill-check"></i> Active
+                        </span>
+                        <span class="badge bg-danger" id="statusBadgeInactive">
+                            <i class="bi bi-shield-slash"></i> Inactive
+                        </span>
+                    </span>
+                </div>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1><i class="bi bi-graph-up me-2"></i>Dashboard</h1>
-            <div>
-                <button id="refresh-dashboard" class="btn btn-outline-primary">
-                    <i class="bi bi-arrow-clockwise me-1"></i>Làm mới
-                </button>
+    <!-- Main Content -->
+    <div class="container-fluid mt-4 mb-5">
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <h2><i class="bi bi-speedometer2 me-2"></i>System Dashboard</h2>
+                <p class="text-muted">Real-time monitoring and control of the DDoS detection system</p>
             </div>
         </div>
-        
-        <div class="row">
-            <div class="col-md-4 mb-4">
-                <div class="card h-100 dashboard-card">
+
+        <div class="row mb-4">
+            <!-- System Control Card -->
+            <div class="col-lg-6 mb-4">
+                <div class="card control-card shadow-sm">
                     <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0"><i class="bi bi-speedometer2 me-2"></i>Hiệu suất Hệ thống</h5>
-                    </div>
-                    <div class="card-body">
-                        <div id="system-stats">
-                            <div class="d-flex justify-content-between mb-3">
-                                <span>CPU:</span>
-                                <div class="progress flex-grow-1 ms-3" style="height: 20px;">
-                                    <div id="cpu-progress" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <span id="cpu-value" class="ms-2">0%</span>
-                            </div>
-                            <div class="d-flex justify-content-between mb-3">
-                                <span>RAM:</span>
-                                <div class="progress flex-grow-1 ms-3" style="height: 20px;">
-                                    <div id="ram-progress" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
-                                </div>
-                                <span id="ram-value" class="ms-2">0%</span>
-                            </div>
-                            <div class="d-flex justify-content-between">
-                                <span>Hàng đợi gói:</span>
-                                <span id="queue-size" class="badge bg-info">0</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-8 mb-4">
-                <div class="card h-100 dashboard-card">
-                    <div class="card-header bg-danger text-white">
-                        <h5 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Tấn công đang diễn ra</h5>
-                    </div>
-                    <div class="card-body">
-                        <div id="active-attacks">
-                            <div class="text-center py-4">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Đang tải...</span>
-                                </div>
-                                <p class="mt-2">Đang tải dữ liệu tấn công...</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="row">
-            <div class="col-md-6 mb-4">
-                <div class="card h-100 dashboard-card">
-                    <div class="card-header bg-warning text-dark">
-                        <h5 class="mb-0"><i class="bi bi-shield-x me-2"></i>IP Bị Chặn</h5>
-                    </div>
-                    <div class="card-body">
-                        <div id="blocked-ips-container">
-                            <div class="text-center py-4">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Đang tải...</span>
-                                </div>
-                                <p class="mt-2">Đang tải danh sách IP bị chặn...</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-6 mb-4">
-                <div class="card h-100 dashboard-card">
-                    <div class="card-header bg-info text-white">
-                        <h5 class="mb-0"><i class="bi bi-activity me-2"></i>Thống kê Phát hiện</h5>
-                    </div>
-                    <div class="card-body">
-                        <div id="detection-stats-container">
-                            <div class="text-center py-4">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Đang tải...</span>
-                                </div>
-                                <p class="mt-2">Đang tải thống kê phát hiện...</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="row">
-            <div class="col-12 mb-4">
-                <div class="card dashboard-card">
-                    <div class="card-header bg-success text-white">
-                        <h5 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Phân bố Loại tấn công</h5>
+                        <i class="bi bi-toggles me-2"></i>System Control
                     </div>
                     <div class="card-body">
                         <div class="row">
-                            <div class="col-md-8">
-                                <canvas id="attack-distribution-chart" height="250"></canvas>
+                            <div class="col-md-6 mb-3">
+                                <div class="d-flex align-items-center mb-2">
+                                    <div class="status-indicator" id="detectionStatus"></div>
+                                    <h5 class="mb-0">Detection Engine</h5>
+                                </div>
+                                <p class="text-muted small">Analyzes network traffic to identify DDoS attacks</p>
+                                <div class="btn-group w-100">
+                                    <button id="startDetectionBtn" class="btn btn-success">
+                                        <i class="bi bi-play-fill me-1"></i>Start
+                                    </button>
+                                    <button id="stopDetectionBtn" class="btn btn-danger">
+                                        <i class="bi bi-stop-fill me-1"></i>Stop
+                                    </button>
+                                </div>
                             </div>
-                            <div class="col-md-4">
-                                <div id="attack-stats-table">
-                                    <div class="text-center py-4">
-                                        <div class="spinner-border text-primary" role="status">
-                                            <span class="visually-hidden">Đang tải...</span>
-                                        </div>
-                                        <p class="mt-2">Đang tải thống kê...</p>
+                            <div class="col-md-6">
+                                <div class="d-flex align-items-center mb-2">
+                                    <div class="status-indicator" id="preventionStatus"></div>
+                                    <h5 class="mb-0">Prevention Engine</h5>
+                                </div>
+                                <p class="text-muted small">Automatically blocks attacking IP addresses</p>
+                                <div class="btn-group w-100">
+                                    <button id="startPreventionBtn" class="btn btn-success">
+                                        <i class="bi bi-play-fill me-1"></i>Start
+                                    </button>
+                                    <button id="stopPreventionBtn" class="btn btn-danger">
+                                        <i class="bi bi-stop-fill me-1"></i>Stop
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics Card -->
+            <div class="col-lg-6 mb-4">
+                <div class="card control-card shadow-sm">
+                    <div class="card-header bg-info text-white">
+                        <i class="bi bi-graph-up me-2"></i>Detection Statistics
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="detectionStats">
+                            <div class="col-md-6 mb-3">
+                                <div class="stat-card p-3 bg-light rounded">
+                                    <h6 class="text-muted">Analyzed Flows</h6>
+                                    <h3 id="totalFlowsAnalyzed">0</h3>
+                                    <div class="progress mt-2" style="height: 5px;">
+                                        <div class="progress-bar bg-primary" role="progressbar" style="width: 100%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div class="stat-card p-3 bg-light rounded">
+                                    <h6 class="text-muted">Detected Attacks</h6>
+                                    <h3 id="attackFlowsDetected">0</h3>
+                                    <div class="progress mt-2" style="height: 5px;">
+                                        <div class="progress-bar bg-danger" role="progressbar" style="width: 100%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="stat-card p-3 bg-light rounded">
+                                    <h6 class="text-muted">Benign Flows</h6>
+                                    <h3 id="benignFlowsAnalyzed">0</h3>
+                                    <div class="progress mt-2" style="height: 5px;">
+                                        <div class="progress-bar bg-success" role="progressbar" style="width: 100%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="stat-card p-3 bg-light rounded">
+                                    <h6 class="text-muted">False Positives</h6>
+                                    <h3 id="falsePositives">0</h3>
+                                    <div class="progress mt-2" style="height: 5px;">
+                                        <div class="progress-bar bg-warning" role="progressbar" style="width: 100%"></div>
                                     </div>
                                 </div>
                             </div>
@@ -159,16 +191,132 @@
                 </div>
             </div>
         </div>
+
+        <div class="row mb-4">
+            <!-- Active Attacks Card -->
+            <div class="col-md-8 mb-4">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-danger text-white">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Active Attacks
+                    </div>
+                    <div class="card-body">
+                        <div id="active-attacks-container">
+                            <div class="text-center py-4" id="no-attacks-message">
+                                <i class="bi bi-shield-check text-success" style="font-size: 3rem;"></i>
+                                <p class="mt-3">No active attacks detected.</p>
+                            </div>
+                            <div class="table-responsive" id="attacks-table" style="display: none;">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Attack Type</th>
+                                            <th>Source IP</th>
+                                            <th>Destination IP</th>
+                                            <th>Confidence</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="active-attacks-body">
+                                        <!-- Attacks will be populated here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attack Distribution Chart -->
+            <div class="col-md-4 mb-4">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <i class="bi bi-pie-chart me-2"></i>Attack Distribution
+                    </div>
+                    <div class="card-body">
+                        <canvas id="attackDistributionChart" height="250"></canvas>
+                        <div class="text-center mt-3" id="no-attack-distribution-message">
+                            <small class="text-muted">No attack data available for visualization</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="blockIPModal" tabindex="-1" aria-labelledby="blockIPModalLabel" aria-hidden="true">
+                        <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title" id="blockIPModalLabel">Block IP Address</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="blockIPForm">
+                            <div class="mb-3">
+                                <label for="ipAddress" class="form-label">IP Address</label>
+                                <input type="text" class="form-control" id="ipAddress" required placeholder="Enter IP address">
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="blockIPSubmitBtn">Block IP</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="d-grid mb-4">
+                    <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#blockIPModal">
+                        <i class="bi bi-shield-x me-1"></i> Block IP Address
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <!-- Blocked IPs Card -->
+            <div class="col-md-12">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-dark text-white">
+                        <i class="bi bi-shield-lock me-2"></i>Blocked IP Addresses
+                        <div class="float-end">
+                            <button class="btn btn-sm btn-outline-light" id="refreshBlockedIPsBtn">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="blocked-ips-container">
+                            <div class="text-center py-4">
+                                <i class="bi bi-shield-check text-success" style="font-size: 3rem;"></i>
+                                <p class="mt-3">No IP addresses are currently blocked.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <footer class="footer mt-5 py-3 bg-dark">
+    <!-- Footer -->
+    <footer class="bg-dark text-white py-3 mt-auto fixed-bottom">
         <div class="container text-center">
-            <span class="text-muted">© 2025 Hệ thống Phát hiện và Ngăn chặn DDoS</span>
+            <span>DDoS Detection System &copy; 2023</span>
+            <div id="cpuMemoryStats" class="small text-muted mt-1">
+                CPU: <span id="cpuUsage">0</span>% | Memory: <span id="memoryUsage">0</span>%
+            </div>
         </div>
     </footer>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <!-- JS Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.0/dist/socket.io.min.js"></script>
+    <script src="/static/js/socketio-handler.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/dashboard.js"></script>
 </body>
 </html>

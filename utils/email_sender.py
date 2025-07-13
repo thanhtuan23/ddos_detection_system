@@ -1,71 +1,92 @@
-# src/ddos_detection_system/utils/email_sender.py
+# utils/email_sender.py
+import logging
 import smtplib
-import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import logging
 from typing import List, Optional
 
 class EmailSender:
     """
-    Tiện ích gửi email thông báo.
+    Utility for sending email notifications.
     """
     
     def __init__(self, smtp_server: str, smtp_port: int, sender_email: str, 
                  password: str, recipients: List[str]):
         """
-        Khởi tạo tiện ích gửi email.
+        Initialize the email sender.
         
         Args:
-            smtp_server: Địa chỉ máy chủ SMTP
-            smtp_port: Cổng của máy chủ SMTP
-            sender_email: Địa chỉ email người gửi
-            password: Mật khẩu hoặc mã ứng dụng của email người gửi
-            recipients: Danh sách địa chỉ email người nhận
+            smtp_server: SMTP server address
+            smtp_port: SMTP server port
+            sender_email: Sender email address
+            password: Sender email password
+            recipients: List of recipient email addresses
         """
+        self.logger = logging.getLogger("ddos_detection_system.utils.email_sender")
+        
         self.smtp_server = smtp_server
         self.smtp_port = smtp_port
         self.sender_email = sender_email
         self.password = password
         self.recipients = recipients
-        self.logger = logging.getLogger("email_sender")
+        
+        self.logger.info(f"Email sender initialized for {smtp_server}:{smtp_port}")
     
     def send_email(self, subject: str, body: str, is_html: bool = False) -> bool:
         """
-        Gửi email.
+        Send an email.
         
         Args:
-            subject: Tiêu đề email
-            body: Nội dung email
-            is_html: True nếu nội dung là HTML, False nếu là text
+            subject: Email subject
+            body: Email body
+            is_html: Whether the body is HTML
             
         Returns:
-            True nếu gửi thành công, False nếu không
+            True if sent successfully, False otherwise
         """
+        if not self.recipients:
+            self.logger.warning("No recipients specified, skipping email")
+            return False
+        
         try:
-            # Tạo tin nhắn
-            message = MIMEMultipart("alternative")
-            message["Subject"] = subject
-            message["From"] = self.sender_email
-            message["To"] = ", ".join(self.recipients)
+            # Create message
+            message = MIMEMultipart()
+            message['From'] = self.sender_email
+            message['To'] = ', '.join(self.recipients)
+            message['Subject'] = subject
             
-            # Thêm phần nội dung vào tin nhắn
-            if is_html:
-                message.attach(MIMEText(body, "html"))
-            else:
-                message.attach(MIMEText(body, "plain"))
+            # Attach body
+            content_type = 'html' if is_html else 'plain'
+            message.attach(MIMEText(body, content_type))
             
-            # Tạo kết nối an toàn với máy chủ SMTP
-            context = ssl.create_default_context()
-            
-            # Kết nối và gửi email
-            with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, context=context) as server:
+            # Connect to server and send
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
                 server.login(self.sender_email, self.password)
-                server.sendmail(self.sender_email, self.recipients, message.as_string())
-                
-            self.logger.info(f"Đã gửi email '{subject}' đến {len(self.recipients)} người nhận")
+                server.send_message(message)
+            
+            self.logger.info(f"Sent email to {len(self.recipients)} recipients: {subject}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Lỗi khi gửi email: {e}")
+            self.logger.error(f"Error sending email: {e}", exc_info=True)
+            return False
+    
+    def test_connection(self) -> bool:
+        """
+        Test the SMTP connection.
+        
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.sender_email, self.password)
+            
+            self.logger.info("SMTP connection test successful")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"SMTP connection test failed: {e}", exc_info=True)
             return False
