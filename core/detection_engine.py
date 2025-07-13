@@ -94,6 +94,11 @@ class DetectionEngine:
             self.is_running = True
             self.stats['start_time'] = time.time()
             
+            # Tạo thread pool mới nếu cần
+            if self.async_analysis and (self.thread_pool is None or self.thread_pool._shutdown):
+                self.logger.info("Creating new thread pool")
+                self.thread_pool = ThreadPoolExecutor(max_workers=self.max_analysis_threads)
+            
             self.detection_thread = threading.Thread(target=self._detection_loop)
             self.detection_thread.daemon = True
             self.detection_thread.start()
@@ -107,17 +112,29 @@ class DetectionEngine:
                 self.logger.warning("Detection engine not running")
                 return
             
+            # Đánh dấu là đang dừng - nhưng chưa dừng hẳn
             self.running = False
             
-            # Wait for thread to terminate
-            if self.detection_thread:
-                self.detection_thread.join(timeout=2.0)
+            # Đợi detection thread kết thúc với timeout dài hơn
+            if self.detection_thread and self.detection_thread.is_alive():
+                self.logger.info("Waiting for detection thread to terminate...")
+                self.detection_thread.join(timeout=10.0)
+                
+                # Kiểm tra xem thread có kết thúc không
+                if self.detection_thread.is_alive():
+                    self.logger.warning("Detection thread did not terminate in time")
             
+            # Đánh dấu đã dừng
             self.is_running = False
             
-            # Shutdown thread pool if async
+            # Đóng thread pool với wait=True để đảm bảo các tác vụ hoàn thành
             if self.thread_pool:
-                self.thread_pool.shutdown(wait=False)
+                self.logger.info("Shutting down thread pool...")
+                try:
+                    self.thread_pool.shutdown(wait=True, cancel_futures=False)
+                    self.logger.info("Thread pool shutdown completed")
+                except Exception as e:
+                    self.logger.error(f"Error shutting down thread pool: {e}")
             
             self.logger.info("DDoS detection engine stopped")
     
@@ -153,11 +170,10 @@ class DetectionEngine:
         
         while self.running:
             try:
-                # Get batch of flows from queue
+                # Get batch of flows without blocking
                 flows = []
                 flow_keys = set()
                 
-                # Try to get up to batch_size flows without blocking
                 for _ in range(self.batch_size):
                     try:
                         flow = self.packet_queue.get_nowait()
@@ -179,15 +195,33 @@ class DetectionEngine:
                 
                 # Process flows if any
                 if flows:
-                    self._process_flows(flows, flow_keys)
+                    try:
+                        self._process_flows(flows, flow_keys)
+                    except RuntimeError as e:
+                        if "cannot schedule new futures after shutdown" in str(e):
+                            self.logger.error("Thread pool was shutdown. Recreating thread pool.")
+                            # Tạo thread pool mới
+                            if self.async_analysis:
+                                self.thread_pool = ThreadPoolExecutor(max_workers=self.max_analysis_threads)
+                            # Thử lại việc xử lý
+                            self._process_flows(flows, flow_keys)
+                        else:
+                            raise
                 else:
                     # No flows to process, sleep
                     time.sleep(self.check_interval)
-                
+                    
             except Exception as e:
                 self.logger.error(f"Error in detection loop: {e}", exc_info=True)
-                time.sleep(1.0)  # Sleep to avoid tight loop on error
+                
+                # Kiểm tra xem detection engine có nên tiếp tục không
+                if not self.running:
+                    break
+                    
+                # Ngủ để tránh vòng lặp chặt nếu liên tục có lỗi
+                time.sleep(1.0)
     
+
     def _process_flows(self, flows, flow_keys):
         """
         Process a batch of flows.

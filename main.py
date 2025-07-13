@@ -15,6 +15,8 @@ from sklearn.exceptions import InconsistentVersionWarning
 warnings.filterwarnings('ignore', message='.*Trying to unpickle estimator .* from version.*')
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings('ignore', message='X does not have valid feature names')
+# 2025-07-13 20:18:51 - WARNING - Feature count mismatch: model has 8, scaler expects 32, extracted 8
+
 
 # Configure logging early
 logging.config.fileConfig('config/logging.conf')

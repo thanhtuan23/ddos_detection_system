@@ -103,7 +103,7 @@ class FeatureExtractor:
             
         Returns:
             Dict with extracted features
-        """
+        """        
         # Select the appropriate extraction method based on model type
         if self.model_type == "suricata":
             return self._extract_suricata_features(flow_data)
@@ -112,174 +112,201 @@ class FeatureExtractor:
     
     def _extract_cicddos_features(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extract features for CIC-DDoS model.
+        Extract CIC-DDoS2019 features from flow data.
         
         Args:
             flow_data: Flow data dictionary
             
         Returns:
-            Dict with extracted CIC-DDoS features
+            Dict with extracted features
         """
-        features = {}
+        # Khởi tạo với các giá trị mặc định
+        features = {
+            'ACK Flag Count': 0,
+            'Fwd Packet Length Min': 0,
+            'Protocol': 0,
+            'URG Flag Count': 0,
+            'Fwd Packet Length Max': 0,
+            'Fwd Packet Length Std': 0,
+            'Init Fwd Win Bytes': 0,
+            'Bwd Packet Length Max': 0
+        }
         
-        # Copy default values for all required features
-        for feature in self.feature_columns:
-            features[feature] = self.default_values.get(feature, 0)
-        
-        # Update with actual values where available
-        for feature in self.cicddos_features:
-            if feature in flow_data:
-                features[feature] = flow_data[feature]
-        
-        # Handle special cases
-        
-        # Ensure TCP flags are present
-        if 'ACK Flag Count' in self.feature_columns and 'tcp_flags' in flow_data:
-            features['ACK Flag Count'] = flow_data['tcp_flags'].get('ACK', 0)
-        
-        if 'URG Flag Count' in self.feature_columns and 'tcp_flags' in flow_data:
-            features['URG Flag Count'] = flow_data['tcp_flags'].get('URG', 0)
-        
-        # Handle packet length features
-        if 'packet_lengths' in flow_data:
-            fwd_lengths = flow_data['packet_lengths'].get('forward', [])
-            if fwd_lengths:
-                if 'Fwd Packet Length Min' in self.feature_columns:
-                    features['Fwd Packet Length Min'] = min(fwd_lengths)
+        # Trích xuất đặc trưng từ flow_data
+        try:
+            # Kiểm tra cấu trúc tcp_flags
+            if 'tcp_flags' in flow_data:
+                # Ghi log để kiểm tra kiểu dữ liệu
+                self.logger.debug(f"TCP flags type: {type(flow_data['tcp_flags'])}, value: {flow_data['tcp_flags']}")
                 
-                if 'Fwd Packet Length Max' in self.feature_columns:
-                    features['Fwd Packet Length Max'] = max(fwd_lengths)
-                
-                if 'Fwd Packet Length Std' in self.feature_columns and len(fwd_lengths) > 1:
-                    features['Fwd Packet Length Std'] = np.std(fwd_lengths)
+                if isinstance(flow_data['tcp_flags'], int):
+                    # Nếu tcp_flags là số nguyên, xử lý như trước
+                    flags = flow_data['tcp_flags']
+                    if flags & 0x10:  # ACK flag
+                        features['ACK Flag Count'] = 1
+                    if flags & 0x20:  # URG flag
+                        features['URG Flag Count'] = 1
+                elif isinstance(flow_data['tcp_flags'], dict):
+                    # Nếu tcp_flags là dictionary, tìm các key liên quan
+                    flags_dict = flow_data['tcp_flags']
+                    if flags_dict.get('ACK', False) or flags_dict.get('ack', False):
+                        features['ACK Flag Count'] = 1
+                    if flags_dict.get('URG', False) or flags_dict.get('urg', False):
+                        features['URG Flag Count'] = 1
+                elif isinstance(flow_data['tcp_flags'], str):
+                    # Nếu tcp_flags là string, kiểm tra từng flag
+                    flags_str = flow_data['tcp_flags'].upper()
+                    if 'ACK' in flags_str:
+                        features['ACK Flag Count'] = 1
+                    if 'URG' in flags_str:
+                        features['URG Flag Count'] = 1
             
-            bwd_lengths = flow_data['packet_lengths'].get('backward', [])
-            if bwd_lengths and 'Bwd Packet Length Max' in self.feature_columns:
-                features['Bwd Packet Length Max'] = max(bwd_lengths)
-        
-        # Handle protocol
-        if 'Protocol' in self.feature_columns and 'protocol' in flow_data:
-            protocol = flow_data['protocol']
-            if protocol == 6:  # TCP
-                features['Protocol'] = 6
-            elif protocol == 17:  # UDP
-                features['Protocol'] = 17
-            elif protocol == 1 or protocol == 58:  # ICMP or ICMPv6
-                features['Protocol'] = 1
-            else:
-                features['Protocol'] = 0
-        
-        # Handle window size
-        if 'Init Fwd Win Bytes' in self.feature_columns:
-            features['Init Fwd Win Bytes'] = flow_data.get('init_win_bytes_forward', 0)
+            # Đặc trưng Protocol
+            if 'protocol' in flow_data:
+                protocol_value = flow_data['protocol']
+                if isinstance(protocol_value, str):
+                    # Chuyển đổi tên protocol thành số
+                    protocol_map = {'TCP': 6, 'UDP': 17, 'ICMP': 1}
+                    features['Protocol'] = protocol_map.get(protocol_value.upper(), 0)
+                else:
+                    features['Protocol'] = int(protocol_value)
+            
+            # Đặc trưng kích thước gói tin
+            if 'fwd_packet_lengths' in flow_data and flow_data['fwd_packet_lengths']:
+                fwd_lengths = flow_data['fwd_packet_lengths']
+                if isinstance(fwd_lengths, list) and len(fwd_lengths) > 0:
+                    features['Fwd Packet Length Min'] = min(fwd_lengths)
+                    features['Fwd Packet Length Max'] = max(fwd_lengths)
+                    features['Fwd Packet Length Std'] = np.std(fwd_lengths) if len(fwd_lengths) > 1 else 0
+                elif 'fwd_pkt_len_min' in flow_data:
+                    # Tìm các key thay thế
+                    features['Fwd Packet Length Min'] = flow_data.get('fwd_pkt_len_min', 0)
+                    features['Fwd Packet Length Max'] = flow_data.get('fwd_pkt_len_max', 0)
+                    features['Fwd Packet Length Std'] = flow_data.get('fwd_pkt_len_std', 0)
+            
+            # Đặc trưng Window size
+            if 'init_win_bytes_forward' in flow_data:
+                features['Init Fwd Win Bytes'] = flow_data['init_win_bytes_forward']
+            elif 'init_fwd_win_bytes' in flow_data:
+                features['Init Fwd Win Bytes'] = flow_data['init_fwd_win_bytes']
+            
+            # Đặc trưng kích thước gói tin ngược
+            if 'bwd_packet_lengths' in flow_data and flow_data['bwd_packet_lengths']:
+                bwd_lengths = flow_data['bwd_packet_lengths']
+                if isinstance(bwd_lengths, list) and len(bwd_lengths) > 0:
+                    features['Bwd Packet Length Max'] = max(bwd_lengths)
+                elif 'bwd_pkt_len_max' in flow_data:
+                    features['Bwd Packet Length Max'] = flow_data.get('bwd_pkt_len_max', 0)
+                    
+        except Exception as e:
+            self.logger.error(f"Error extracting CIC-DDoS features: {e}", exc_info=True)
+            # Ghi log thông tin flow_data để debug
+            self.logger.debug(f"Flow data: {flow_data}")
         
         return features
-    
+
     def _extract_suricata_features(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extract features for Suricata model.
+        Extract Suricata-compatible features from flow data.
         
         Args:
             flow_data: Flow data dictionary
             
         Returns:
-            Dict with extracted Suricata features
+            Dict with extracted features
         """
-        features = {}
+        # Khởi tạo với các giá trị mặc định cho các đặc trưng Suricata
+        features = {
+            'src_port': 0,
+            'dest_port': 0,
+            'bytes_toserver': 0,
+            'bytes_toclient': 0,
+            'pkts_toserver': 0,
+            'pkts_toclient': 0,
+            'total_bytes': 0,
+            'total_pkts': 0,
+            'avg_bytes_per_pkt': 0,
+            'bytes_ratio': 1.0,
+            'pkts_ratio': 1.0,
+            'is_wellknown_port': 0,
+            'proto_tcp': 0,
+            'proto_udp': 0,
+            'proto_ipv6-icmp': 0,
+            'proto_icmp': 0,
+            'proto_ICMP': 0,
+            'proto_IPv6-ICMP': 0,
+            'proto_TCP': 0,
+            'proto_UDP': 0
+        }
         
-        # Copy default values for all required features
-        for feature in self.feature_columns:
-            features[feature] = self.default_values.get(feature, 0)
-        
-        # Update with actual values where available
-        for feature in self.suricata_features:
-            if feature in flow_data:
-                features[feature] = flow_data[feature]
-        
-        # Handle ports
-        if 'src_port' in self.feature_columns:
-            features['src_port'] = flow_data.get('src_port', 0) or 0
-        
-        if 'dest_port' in self.feature_columns:
-            features['dest_port'] = flow_data.get('dst_port', 0) or 0
-        
-        # Handle byte and packet counts
-        if 'bytes_toserver' in self.feature_columns:
-            features['bytes_toserver'] = flow_data.get('fwd_bytes', 0)
-        
-        if 'bytes_toclient' in self.feature_columns:
-            features['bytes_toclient'] = flow_data.get('bwd_bytes', 0)
-        
-        if 'pkts_toserver' in self.feature_columns:
-            features['pkts_toserver'] = flow_data.get('fwd_packets', 0)
-        
-        if 'pkts_toclient' in self.feature_columns:
-            features['pkts_toclient'] = flow_data.get('bwd_packets', 0)
-        
-        if 'total_bytes' in self.feature_columns:
-            features['total_bytes'] = flow_data.get('bytes', 0)
-        
-        if 'total_pkts' in self.feature_columns:
-            features['total_pkts'] = flow_data.get('packets', 0)
-        
-        # Calculate average bytes per packet
-        if 'avg_bytes_per_pkt' in self.feature_columns:
-            packets = flow_data.get('packets', 0)
-            bytes_total = flow_data.get('bytes', 0)
-            features['avg_bytes_per_pkt'] = bytes_total / packets if packets > 0 else 0
-        
-        # Calculate ratios
-        if 'bytes_ratio' in self.feature_columns:
-            fwd_bytes = flow_data.get('fwd_bytes', 0)
-            bwd_bytes = flow_data.get('bwd_bytes', 0)
-            features['bytes_ratio'] = fwd_bytes / bwd_bytes if bwd_bytes > 0 else 1.0
-        
-        if 'pkts_ratio' in self.feature_columns:
-            fwd_packets = flow_data.get('fwd_packets', 0)
-            bwd_packets = flow_data.get('bwd_packets', 0)
-            features['pkts_ratio'] = fwd_packets / bwd_packets if bwd_packets > 0 else 1.0
-        
-        # Handle protocol one-hot encoding
-        protocol = self._get_protocol_number(flow_data.get('protocol', 0))
-        
-        for proto_name in ['tcp', 'udp', 'ipv6-icmp', 'icmp', 'ICMP', 'IPv6-ICMP', 'TCP', 'UDP']:
-            proto_feature = f'proto_{proto_name}'
-            if proto_feature in self.feature_columns:
-                features[proto_feature] = 0
-        
-        # Set appropriate protocol flags
-        if protocol == 6:  # TCP
-            if 'proto_tcp' in self.feature_columns:
-                features['proto_tcp'] = 1
-            if 'proto_TCP' in self.feature_columns:
-                features['proto_TCP'] = 1
-        elif protocol == 17:  # UDP
-            if 'proto_udp' in self.feature_columns:
-                features['proto_udp'] = 1
-            if 'proto_UDP' in self.feature_columns:
-                features['proto_UDP'] = 1
-        elif protocol == 1:  # ICMP
-            if 'proto_icmp' in self.feature_columns:
-                features['proto_icmp'] = 1
-            if 'proto_ICMP' in self.feature_columns:
-                features['proto_ICMP'] = 1
-        elif protocol == 58:  # ICMPv6
-            if 'proto_ipv6-icmp' in self.feature_columns:
-                features['proto_ipv6-icmp'] = 1
-            if 'proto_IPv6-ICMP' in self.feature_columns:
-                features['proto_IPv6-ICMP'] = 1
-        
-        # Handle well-known port check
-        if 'is_wellknown_port' in self.feature_columns:
-            src_port = flow_data.get('src_port', 0) or 0
-            dst_port = flow_data.get('dst_port', 0) or 0
+        try:
+            # Trích xuất đặc trưng cổng
+            if 'src_port' in flow_data:
+                features['src_port'] = flow_data['src_port']
+            if 'dst_port' in flow_data:
+                features['dest_port'] = flow_data['dst_port']
             
-            is_wellknown = 0
-            wellknown_ports = [20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 465, 587, 993, 995, 3306, 3389, 5432, 8080, 8443]
-            if src_port in wellknown_ports or dst_port in wellknown_ports:
-                is_wellknown = 1
+            # Các đặc trưng về byte
+            if 'bytes_toserver' in flow_data:
+                features['bytes_toserver'] = flow_data['bytes_toserver']
+            if 'bytes_toclient' in flow_data:
+                features['bytes_toclient'] = flow_data['bytes_toclient']
             
-            features['is_wellknown_port'] = is_wellknown
+            # Các đặc trưng về gói tin
+            if 'pkts_toserver' in flow_data:
+                features['pkts_toserver'] = flow_data['pkts_toserver']
+            if 'pkts_toclient' in flow_data:
+                features['pkts_toclient'] = flow_data['pkts_toclient']
+            
+            # Tính tổng số byte và gói tin
+            features['total_bytes'] = features['bytes_toserver'] + features['bytes_toclient']
+            features['total_pkts'] = features['pkts_toserver'] + features['pkts_toclient']
+            
+            # Tính trung bình byte trên mỗi gói tin
+            if features['total_pkts'] > 0:
+                features['avg_bytes_per_pkt'] = features['total_bytes'] / features['total_pkts']
+            
+            # Tính tỷ lệ byte và gói tin
+            if features['bytes_toclient'] > 0:
+                features['bytes_ratio'] = features['bytes_toserver'] / features['bytes_toclient']
+            if features['pkts_toclient'] > 0:
+                features['pkts_ratio'] = features['pkts_toserver'] / features['pkts_toclient']
+            
+            # Kiểm tra cổng well-known
+            well_known_ports = [80, 443, 53, 22, 25, 110, 143, 993, 995, 21]
+            if features['src_port'] in well_known_ports or features['dest_port'] in well_known_ports:
+                features['is_wellknown_port'] = 1
+            
+            # Xác định giao thức
+            if 'protocol' in flow_data:
+                protocol = flow_data['protocol']
+                if isinstance(protocol, str):
+                    protocol = protocol.upper()
+                    if protocol == 'TCP':
+                        features['proto_tcp'] = 1
+                        features['proto_TCP'] = 1
+                    elif protocol == 'UDP':
+                        features['proto_udp'] = 1
+                        features['proto_UDP'] = 1
+                    elif protocol == 'ICMP':
+                        features['proto_icmp'] = 1
+                        features['proto_ICMP'] = 1
+                    elif protocol == 'IPV6-ICMP':
+                        features['proto_ipv6-icmp'] = 1
+                        features['proto_IPv6-ICMP'] = 1
+                elif isinstance(protocol, int):
+                    if protocol == 6:  # TCP
+                        features['proto_tcp'] = 1
+                        features['proto_TCP'] = 1
+                    elif protocol == 17:  # UDP
+                        features['proto_udp'] = 1
+                        features['proto_UDP'] = 1
+                    elif protocol == 1:  # ICMP
+                        features['proto_icmp'] = 1
+                        features['proto_ICMP'] = 1
+        
+        except Exception as e:
+            self.logger.error(f"Error extracting Suricata features: {e}", exc_info=True)
         
         return features
     

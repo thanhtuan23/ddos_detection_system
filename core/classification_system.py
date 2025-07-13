@@ -51,7 +51,6 @@ class ClassificationSystem:
             'Syn': 'SYN Flood',
             'UDP': 'UDP Flood',
             'UDPLag': 'UDP Lag',
-            'DDoS': 'Generic DDoS'
         }
         
         # Read mapping from config if available
@@ -142,67 +141,102 @@ class ClassificationSystem:
         return is_attack, confidence, display_attack_type, details
     
     def _classify_with_model(self, flow: Dict[str, Any], model_info: Dict[str, Any], 
-                            feature_extractor: Any, model_type: str) -> Tuple[bool, float, str, Optional[int]]:
-        """
-        Classify a flow using a specific model.
-        
-        Args:
-            flow: Flow data dictionary
-            model_info: Model information dictionary
-            feature_extractor: Feature extractor for this model
-            model_type: Type of model ("cicddos" or "suricata")
-            
-        Returns:
-            Tuple of (is_attack, confidence, attack_type, subtype)
-        """
+                        feature_extractor: Any, model_type: str) -> Tuple[bool, float, str, Optional[int]]:
         try:
-            # Extract features
+            # Ghi log cấu trúc dữ liệu đầu vào
+            self.logger.debug(f"Flow data keys: {list(flow.keys())}")
+            self.logger.debug(f"Flow data sample: {str(flow)[:200]}...")  # Chỉ hiển thị 200 ký tự đầu
+            
+            # Trích xuất đặc trưng
             features = feature_extractor.extract_features(flow)
             
-            # Prepare features as DataFrame
-            features_df = feature_extractor.prepare_features_df(features)
+            # Ghi log đặc trưng đã trích xuất
+            self.logger.debug(f"Extracted features: {features}")
             
-            # Get model and preprocessing components
+            # Chuẩn bị dataframe cho dự đoán
+            X = feature_extractor.prepare_features_df(features)
+            
+            # Lấy mô hình và các thành phần khác
             model = model_info.get('model')
             scaler = model_info.get('scaler')
-            label_encoder = model_info.get('label_encoder')
-            label_mapping = model_info.get('label_mapping', {})
             
-            # Apply scaling if available
-            if scaler:
-                features_df = pd.DataFrame(
-                    scaler.transform(features_df),
-                    columns=features_df.columns
-                )
+            # Kiểm tra xem model_info có chứa 'features' hay 'selected_features'
+            if 'features' in model_info:
+                expected_features = model_info['features']
+            elif 'selected_features' in model_info:
+                expected_features = model_info['selected_features']
+            else:
+                # Nếu không có thông tin về đặc trưng, sử dụng tất cả các đặc trưng
+                expected_features = list(features.keys())
             
-            # Make prediction
-            prediction = model.predict(features_df)
-            probabilities = model.predict_proba(features_df)
+            # Ghi log thông tin về đặc trưng
+            self.logger.debug(f"Model expects {len(expected_features)} features: {expected_features}")
+            self.logger.debug(f"Extracted {len(features)} features: {list(features.keys())}")
             
-            # Get class and confidence
-            predicted_class_idx = prediction[0]
-            confidence = np.max(probabilities[0])
+            # Kiểm tra nếu scaler tồn tại và có n_features_in_
+            if scaler and hasattr(scaler, 'n_features_in_'):
+                scaler_expected = scaler.n_features_in_
+                actual_features = X.shape[1]
+                
+                # Nếu số lượng đặc trưng không khớp với scaler
+                if actual_features != scaler_expected:
+                    self.logger.warning(
+                        f"Feature count mismatch: model has {len(expected_features)}, "
+                        f"scaler expects {scaler_expected}, extracted {actual_features}")
+                    
+                    # Bỏ qua bước chuẩn hóa
+                    X_scaled = X
+                    
+                    # Chuyển đổi DataFrame thành numpy array nếu cần
+                    if hasattr(X_scaled, 'to_numpy'):
+                        X_scaled = X_scaled.to_numpy()
+                else:
+                    # Nếu số lượng đặc trưng khớp, tiếp tục chuẩn hóa
+                    try:
+                        X_scaled = scaler.transform(X)
+                    except Exception as e:
+                        self.logger.warning(f"Scaling error: {e}. Using unscaled features.")
+                        X_scaled = X
+                        if hasattr(X_scaled, 'to_numpy'):
+                            X_scaled = X_scaled.to_numpy()
+            else:
+                # Nếu không có scaler, sử dụng đặc trưng nguyên gốc
+                X_scaled = X
+                if hasattr(X_scaled, 'to_numpy'):
+                    X_scaled = X_scaled.to_numpy()
             
-            # Map class index to label
-            attack_type = "Unknown"
-            attack_subtype = None
-            
-            if label_mapping and predicted_class_idx in label_mapping:
-                attack_type = label_mapping[predicted_class_idx]
-            elif label_encoder:
-                try:
-                    attack_type = label_encoder.inverse_transform([predicted_class_idx])[0]
-                except Exception as e:
-                    self.logger.warning(f"Error transforming label: {e}")
-            
-            # Determine if it's an attack
-            is_attack = attack_type.lower() != 'benign' and attack_type.lower() != 'normal'
-            
-            return is_attack, confidence, attack_type, attack_subtype
-            
+            # Dự đoán với mô hình
+            try:
+                if hasattr(model, 'predict_proba'):
+                    y_proba = model.predict_proba(X_scaled)
+                    y_pred = np.argmax(y_proba, axis=1)
+                    confidence = np.max(y_proba, axis=1)[0]
+                else:
+                    y_pred = model.predict(X_scaled)
+                    confidence = 1.0
+                
+                # Xử lý kết quả dự đoán
+                original_class = int(y_pred[0]) if len(y_pred) > 0 else None
+                
+                # Lấy ánh xạ nhãn
+                label_mapping = model_info.get('label_mapping', {})
+                class_name = label_mapping.get(original_class, f"Unknown-{original_class}")
+                
+                # Ánh xạ tên hiển thị
+                attack_type = self.attack_type_mapping.get(class_name, f"Unknown-{class_name}")
+                
+                # Xác định xem có phải tấn công không
+                is_attack = class_name.lower() != 'benign' and class_name.lower() != 'normal'
+                
+                return is_attack, confidence, attack_type, original_class
+                
+            except Exception as e:
+                self.logger.error(f"Prediction error: {e}", exc_info=True)
+                return False, 0.0, "Unknown", None
+                
         except Exception as e:
-            self.logger.error(f"Error classifying with model: {e}", exc_info=True)
-            return False, 0.0, "Error", None
+            self.logger.error(f"Classification error: {e}", exc_info=True)
+            return False, 0.0, "Unknown", None
     
     def _combine_results(self, results: List[Tuple]) -> Tuple[bool, float, str, Optional[int]]:
         """
@@ -302,7 +336,6 @@ class ClassificationSystem:
             'SYN Flood': 'Attack that sends a flood of TCP/SYN packets to consume server resources.',
             'UDP Flood': 'Attack that sends a large number of UDP packets to overwhelm target servers.',
             'UDP Lag': 'Attack that sends UDP packets designed to create network latency issues.',
-            'Generic DDoS': 'General distributed denial of service attack.',
             'Normal': 'Normal network traffic with no attack characteristics.'
         }
         
