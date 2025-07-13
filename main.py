@@ -914,20 +914,28 @@ class DDoSDetectionSystem:
     def run(self):
         """Start the system and run the web UI."""
         try:
+            print("Bắt đầu chạy hệ thống...")
+            
             # Display information about streaming services
             if hasattr(self, 'detection_engine') and hasattr(self.detection_engine, 'streaming_services'):
                 streaming_services = ', '.join(self.detection_engine.streaming_services)
+                print(f"Hỗ trợ tự động phát hiện cho các dịch vụ streaming: {streaming_services}")
                 self.logger.info(f"Automatic detection support for streaming services: {streaming_services}")
             
             # Start system components
+            print("Đang khởi động tất cả các thành phần hệ thống...")
             if not self.start_all():
+                print("THẤT BẠI: Không thể khởi động hệ thống. Đang thoát.")
                 self.logger.error("Failed to start system. Exiting.")
                 return
+            print("Đã khởi động thành công tất cả các thành phần hệ thống!")
             
             # Start detection if configured to auto-start
             auto_start_detection = self.config.getboolean('Detection', 'auto_start', fallback=True)
             if auto_start_detection:
+                print("Đang tự động khởi động công cụ phát hiện...")
                 self.start_detection()
+                print("Đã khởi động thành công công cụ phát hiện!")
                 self.logger.info("Auto-started detection engine")
             
             # Run web UI
@@ -935,14 +943,30 @@ class DDoSDetectionSystem:
             port = self.config.getint('WebUI', 'port', fallback=5000)
             debug = self.config.getboolean('WebUI', 'debug', fallback=False)
             
+            print(f"Đang khởi động giao diện web tại http://{host}:{port}")
+            print(f"Chế độ debug: {debug}")
             self.logger.info(f"Starting web UI at http://{host}:{port}")
+            
+            # Thông báo cách truy cập
+            print("\n" + "="*50)
+            print(f"HỆ THỐNG ĐÃ SẴN SÀNG!")
+            print(f"Mở trình duyệt và truy cập: http://{host}:{port}")
+            print("="*50 + "\n")
+            
+            # Chạy webapp (điểm cuối cùng)
+            print("Đang khởi động máy chủ web... (Quá trình này sẽ chặn cho đến khi máy chủ dừng lại)")
             run_webapp(host, port, debug)
             
         except KeyboardInterrupt:
+            print("\nĐã nhận tín hiệu thoát. Đang dừng hệ thống...")
             self.logger.info("Received exit signal. Stopping system...")
             self.stop_all()
         except Exception as e:
-            self.logger.critical(f"Unhandled error: {e}", exc_info=True)
+            error_msg = f"Lỗi không xử lý được: {e}"
+            print(f"\n{'='*50}\nLỖI NGHIÊM TRỌNG: {error_msg}\n{'='*50}")
+            import traceback
+            traceback.print_exc()
+            self.logger.critical(error_msg, exc_info=True)
             self.stop_all()
 
 

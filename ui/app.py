@@ -364,13 +364,10 @@ def get_system_stats():
         })
 
 # Khởi động webapp
-def run_webapp(host='0.0.0.0', port=5000, debug=False):
-    # Đăng ký socketio events
-    from ui.socketio_events import register_socketio_events
-    register_socketio_events(socketio, app)
+def run_webapp(host, port, debug):
+    print(f"Khởi động ứng dụng web tại {host}:{port} với debug={debug}")
+    app.run(host=host, port=port, debug=debug, use_reloader=False)
     
-    # Khởi động server
-    socketio.run(app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
 # Khởi động webapp
 def run_webapp(host='0.0.0.0', port=5000, debug=False):
     # Đăng ký socketio events
